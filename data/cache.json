@@ -1,0 +1,7 @@
+{
+  "whoami": "root\n",
+  "pwd": "/root\n",
+  "ls": "bin  boot  dev  etc  home  lib  media  mnt  opt  proc  root  run  sbin  srv  sys  tmp  usr  var\n",
+  "uname -a": "Linux miragepot 5.15.0-86-generic #96-Ubuntu SMP x86_64 GNU/Linux\n",
+  "id": "uid=0(root) gid=0(root) groups=0(root)\n"
+}

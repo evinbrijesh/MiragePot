@@ -1,0 +1,4 @@
+paramiko
+ollama
+streamlit
+colorama

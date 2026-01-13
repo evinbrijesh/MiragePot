@@ -1,0 +1,12 @@
+body {
+  background-color: #020810;
+  color: #f5f5f5;
+  font-family: "Fira Code", monospace;
+}
+
+h1, h2, h3, h4 {
+  color: #00ff9f;
+}
+
+/* Note: To fully apply this style in Streamlit,
+   you would inject it via st.markdown with unsafe_allow_html=True. */
