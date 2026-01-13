@@ -88,10 +88,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
 
     chan.settimeout(300)
 
-    # Send fake banner
-    chan.send("Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.15.0-86-generic x86_64)\n")
-    chan.send("Last login: just now from unknown\n")
-    chan.send(PROMPT)
+    # Send fake banner and initial prompt (use CRLF for terminals)
+    chan.send(b"Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.15.0-86-generic x86_64)\r\n")
+    chan.send(b"Last login: just now from unknown\r\n")
+    chan.send(PROMPT.encode("utf-8"))
 
     buffer = ""
     try:
@@ -99,64 +99,78 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
             data = chan.recv(1024)
             if not data:
                 break
-            try:
-                text = data.decode("utf-8", errors="ignore")
-            except Exception:
-                continue
 
-            buffer += text
-
-            while "\n" in buffer or "\r" in buffer:
-                # Split on first newline or carriage return
-                newline_pos = min(
-                    pos
-                    for pos in [
-                        buffer.find("\n") if "\n" in buffer else len(buffer),
-                        buffer.find("\r") if "\r" in buffer else len(buffer),
-                    ]
-                )
-                line, buffer = buffer[:newline_pos], buffer[newline_pos + 1 :]
-                command = line.strip()
-
-                if not command:
-                    chan.send(PROMPT)
+            for byte in data:
+                try:
+                    c = chr(byte)
+                except Exception:
                     continue
 
-                # Active defense: threat scoring and tarpit
-                score = calculate_threat_score(command)
-                delay_applied = apply_tarpit(score)
+                # Handle newline / carriage return: process the current buffer as a command
+                if c in ("\n", "\r"):
+                    chan.send(b"\r\n")  # move to next line on the client
+                    command = buffer.strip()
+                    buffer = ""
 
-                response = handle_command(command, session_state)
+                    if not command:
+                        chan.send(PROMPT.encode("utf-8"))
+                        continue
 
-                # Special token indicating the session should close
-                if response == "__MIRAGEPOT_EXIT__":
+                    # Active defense: threat scoring and tarpit
+                    score = calculate_threat_score(command)
+                    delay_applied = apply_tarpit(score)
+
+                    response = handle_command(command, session_state)
+
+                    # Special token indicating the session should close
+                    if response == "__MIRAGEPOT_EXIT__":
+                        session_log["commands"].append(
+                            {
+                                "timestamp": datetime.utcnow().isoformat() + "Z",
+                                "command": command,
+                                "response": "",
+                                "threat_score": score,
+                                "delay_applied": delay_applied,
+                            }
+                        )
+                        chan.send(b"logout\r\n")
+                        chan.close()
+                        raise EOFError
+
+                    # Log this command
                     session_log["commands"].append(
                         {
                             "timestamp": datetime.utcnow().isoformat() + "Z",
                             "command": command,
-                            "response": "",
+                            "response": response,
                             "threat_score": score,
                             "delay_applied": delay_applied,
                         }
                     )
-                    chan.send("logout\n")
-                    chan.close()
-                    raise EOFError
 
-                # Log this command
-                session_log["commands"].append(
-                    {
-                        "timestamp": datetime.utcnow().isoformat() + "Z",
-                        "command": command,
-                        "response": response,
-                        "threat_score": score,
-                        "delay_applied": delay_applied,
-                    }
-                )
+                    if response:
+                        # Ensure responses end with a newline so prompts are aligned
+                        if not response.endswith("\n") and not response.endswith("\r"):
+                            response = response + "\r\n"
+                        else:
+                            # Normalize LF to CRLF for SSH terminals
+                            response = response.replace("\n", "\r\n")
+                        chan.send(response.encode("utf-8"))
 
-                if response:
-                    chan.send(response)
-                chan.send(PROMPT)
+                    chan.send(PROMPT.encode("utf-8"))
+                    continue
+
+                # Handle backspace (DEL)
+                if c == "\x7f":
+                    if buffer:
+                        buffer = buffer[:-1]
+                        # Move cursor back, erase char, move back again
+                        chan.send(b"\b \b")
+                    continue
+
+                # Regular printable character: add to buffer and echo it
+                buffer += c
+                chan.send(c.encode("utf-8"))
 
     except EOFError:
         LOGGER.info("Session closed by client %s", attacker_ip)
