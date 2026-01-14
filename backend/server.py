@@ -52,12 +52,24 @@ def _new_session_log(attacker_ip: str) -> Dict[str, Any]:
     }
 
 
+def _make_json_safe(obj: Any) -> Any:
+    """Recursively convert non-JSON-serializable types to safe forms."""
+    if isinstance(obj, dict):
+        return {k: _make_json_safe(v) for k, v in obj.items()}
+    if isinstance(obj, set):
+        return sorted(_make_json_safe(v) for v in obj)
+    if isinstance(obj, (list, tuple)):
+        return [_make_json_safe(v) for v in obj]
+    return obj
+
+
 def _save_session_log(session_log: Dict[str, Any]) -> None:
     """Persist a session log to JSON file."""
     session_id = session_log.get("session_id", f"session_{int(time.time())}")
     path = LOG_DIR / f"{session_id}.json"
     try:
-        path.write_text(json.dumps(session_log, indent=2), encoding="utf-8")
+        safe_log = _make_json_safe(session_log)
+        path.write_text(json.dumps(safe_log, indent=2), encoding="utf-8")
     except Exception as exc:  # pragma: no cover
         LOGGER.error("Failed to write session log %s: %s", session_id, exc)
 
@@ -101,9 +113,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                 break
 
             for byte in data:
-                try:
-                    c = chr(byte)
-                except Exception:
+                c = chr(byte)
+
+                # Ignore non-printable control chars except CR/LF and backspace
+                if c not in ("\n", "\r", "\x7f") and ord(c) < 32:
                     continue
 
                 # Handle newline / carriage return: process the current buffer as a command

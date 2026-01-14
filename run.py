@@ -28,7 +28,7 @@ def start_process(cmd: List[str], name: str) -> subprocess.Popen:
 
 
 def main() -> None:
-    backend_cmd = [sys.executable, "backend/server.py"]
+    backend_cmd = [sys.executable, "-m", "backend.server"]
     dashboard_cmd = ["streamlit", "run", "dashboard/app.py"]
 
     backend_proc = start_process(backend_cmd, "MiragePot backend")
