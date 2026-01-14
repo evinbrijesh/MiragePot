@@ -133,7 +133,13 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                     score = calculate_threat_score(command)
                     delay_applied = apply_tarpit(score)
 
-                    response = handle_command(command, session_state)
+                    try:
+                        response = handle_command(command, session_state)
+                    except Exception as cmd_exc:  # pragma: no cover - defensive
+                        LOGGER.error(
+                            "Command handling error for %s: %s", attacker_ip, cmd_exc
+                        )
+                        response = f"bash: internal error while handling '{command}'\n"
 
                     # Special token indicating the session should close
                     if response == "__MIRAGEPOT_EXIT__":
@@ -161,16 +167,27 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                         }
                     )
 
-                    if response:
-                        # Ensure responses end with a newline so prompts are aligned
-                        if not response.endswith("\n") and not response.endswith("\r"):
-                            response = response + "\r\n"
-                        else:
-                            # Normalize LF to CRLF for SSH terminals
-                            response = response.replace("\n", "\r\n")
-                        chan.send(response.encode("utf-8"))
+                    try:
+                        if response:
+                            # Ensure responses end with a newline so prompts are aligned
+                            if not response.endswith("\n") and not response.endswith(
+                                "\r"
+                            ):
+                                response = response + "\r\n"
+                            else:
+                                # Normalize LF to CRLF for SSH terminals
+                                response = response.replace("\n", "\r\n")
+                            chan.send(response.encode("utf-8"))
 
-                    chan.send(PROMPT.encode("utf-8"))
+                        chan.send(PROMPT.encode("utf-8"))
+                    except Exception as send_exc:  # pragma: no cover - defensive
+                        LOGGER.error(
+                            "Error sending response to %s: %s", attacker_ip, send_exc
+                        )
+                        # If the channel is really closed, the next recv will be empty
+                        # and the loop will exit cleanly. Do not force-close here.
+                        continue
+
                     continue
 
                 # Handle backspace (DEL)

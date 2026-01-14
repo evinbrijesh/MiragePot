@@ -51,23 +51,24 @@ def build_user_prompt(command: str, session_state: Dict[str, Any]) -> str:
     maintain plausible continuity (current directory, known files/dirs).
     """
     cwd = session_state.get("cwd", "/root")
-    directories = session_state.get("directories", [])
-    files = session_state.get("files", [])
+    directories = list(session_state.get("directories", []))
+    files = session_state.get("files", {})
 
     state_summary = {
         "cwd": cwd,
-        "directories": directories,
-        "files": files,
+        "directories": sorted(directories),
+        "files": list(files.keys()),
     }
 
     return (
+        "You are Ubuntu server 'miragepot'. The following JSON describes the current session state (cwd, known directories, known files).\n"
+        "Use it to stay consistent, but DO NOT echo it back.\n"
         "Session state summary (JSON):\n"
         + json.dumps(state_summary)
-        + "\n\n"
-        + "User command: "
+        + "\n\nCommand: "
         + command
         + "\n"
-        + "Respond with ONLY the terminal output for this command."
+        + "Respond ONLY with the terminal output for this command."
     )
 
 

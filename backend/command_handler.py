@@ -43,12 +43,123 @@ CACHE = _load_cache()
 
 
 def init_session_state() -> Dict[str, Any]:
-    """Initialize a new session state for a connection."""
+    """Initialize a new session state for a connection.
+
+    This seeds a minimal but realistic Linux-like filesystem tree so that
+    common reconnaissance commands (ls /, ls /home, cat /etc/os-release,
+    etc.) behave as expected from an attacker's point of view.
+    """
+    directories = {
+        "/",
+        "/bin",
+        "/boot",
+        "/dev",
+        "/etc",
+        "/home",
+        "/home/user",
+        "/home/user/Documents",
+        "/lib",
+        "/lib64",
+        "/media",
+        "/mnt",
+        "/opt",
+        "/proc",
+        "/root",
+        "/run",
+        "/sbin",
+        "/srv",
+        "/sys",
+        "/tmp",
+        "/usr",
+        "/usr/local",
+        "/var",
+        "/var/www",
+        "/var/www/html",
+        "/var/log",
+        "/opt/legacy_backup",
+    }
+
+    files: Dict[str, str] = {
+        "/etc/hostname": "miragepot\n",
+        "/etc/os-release": (
+            'NAME="Ubuntu"\n'
+            'VERSION="20.04.6 LTS (Focal Fossa)"\n'
+            "ID=ubuntu\n"
+            "ID_LIKE=debian\n"
+            'PRETTY_NAME="Ubuntu 20.04.6 LTS"\n'
+            'VERSION_ID="20.04"\n'
+            'HOME_URL="https://www.ubuntu.com/"\n'
+            'SUPPORT_URL="https://help.ubuntu.com/"\n'
+            'BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"\n'
+        ),
+        "/etc/passwd": (
+            "root:x:0:0:root:/root:/bin/bash\n"
+            "daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin\n"
+            "bin:x:2:2:bin:/bin:/usr/sbin/nologin\n"
+            "sys:x:3:3:sys:/dev:/usr/sbin/nologin\n"
+            "sync:x:4:65534:sync:/bin:/bin/sync\n"
+            "games:x:5:60:games:/usr/games:/usr/sbin/nologin\n"
+            "man:x:6:12:man:/var/cache/man:/usr/sbin/nologin\n"
+            "lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin\n"
+            "mail:x:8:8:mail:/var/mail:/usr/sbin/nologin\n"
+            "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\n"
+            "sshd:x:100:65534::/run/sshd:/usr/sbin/nologin\n"
+            "user:x:1000:1000:Mirage User:/home/user:/bin/bash\n"
+        ),
+        "/root/notes.txt": (
+            "TODO: migrate old customer database from /opt/legacy_backup/db_backup.sql\n"
+            "NOTE: web app config under /var/www/html/.env and config.php\n"
+        ),
+        "/root/passwords.txt": (
+            "# Legacy admin credentials (DO NOT SHARE)\n"
+            "admin:OldPortal!2020\n"
+            "backup:BackupUser#123\n"
+            "webadmin:WebAdm1n!\n"
+        ),
+        "/home/user/Documents/passwords.txt": (
+            "# Personal passwords (legacy, do not use)\n"
+            "email:user@example.local:UserMail!2021\n"
+            "forum:user_forum:ForumPass#42\n"
+            "old_vpn:user_vpn:VPN-Access-Temp1\n"
+        ),
+        "/home/user/Documents/creds.txt": (
+            "DB_HOST=db.internal.local\n"
+            "DB_USER=mirage_user\n"
+            "DB_PASSWORD=FAKE_DB_PASSWORD_12345\n"
+            "API_KEY=DUMMY_INTERNAL_API_KEY_XYZ123\n"
+        ),
+        "/var/www/html/index.php": ("<?php echo 'Hello from MiragePot!'; ?>\n"),
+        "/var/www/html/.env": (
+            "APP_ENV=production\n"
+            "DB_HOST=db.internal.local\n"
+            "DB_USER=mirage_user\n"
+            "DB_PASSWORD=FAKE_DB_PASSWORD_12345\n"
+            "API_KEY=FAKE_API_KEY_ABCDEF123456\n"
+        ),
+        "/var/www/html/config.php": (
+            "<?php\n"
+            "$db_host = 'db.internal.local';\n"
+            "$db_user = 'mirage_user';\n"
+            "$db_pass = 'FAKE_DB_PASSWORD_12345';\n"
+            "$db_name = 'legacy_app';\n"
+            "// legacy config, do not remove\n"
+            "?>\n"
+        ),
+        "/opt/legacy_backup/db_backup.sql": (
+            "-- Fake legacy database backup for MiragePot honeypot\n"
+            "CREATE TABLE users (id INT, username VARCHAR(32), password VARCHAR(64));\n"
+            "INSERT INTO users VALUES (1, 'admin', 'FAKE_HASHED_PASSWORD');\n"
+        ),
+        "/home/user/.ssh/authorized_keys": (
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFakeMiragePotKey user@miragepot\n"
+        ),
+    }
+
     return {
         "cwd": "/root",
-        "directories": {"/", "/root"},
+        "directories": directories,
         # files store path -> content; content is plain text
-        "files": {},  # type: ignore[dict-annotated]
+        "files": files,
     }
 
 
