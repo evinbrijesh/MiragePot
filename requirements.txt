@@ -1,4 +1,13 @@
-paramiko
-ollama
-streamlit
-colorama
+# Core dependencies
+paramiko>=3.0.0
+ollama>=0.1.0
+streamlit>=1.30.0
+colorama>=0.4.6
+python-dotenv>=1.0.0
+
+# Development dependencies (optional, install with: pip install -e ".[dev]")
+# pytest>=7.0.0
+# pytest-cov>=4.0.0
+# black>=23.0.0
+# ruff>=0.1.0
+# mypy>=1.0.0

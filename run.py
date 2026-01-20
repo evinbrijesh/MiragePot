@@ -2,7 +2,7 @@
 """Unified runner for MiragePot.
 
 Starts:
-- SSH honeypot backend (backend/server.py)
+- SSH honeypot backend (miragepot.server)
 - Streamlit dashboard (dashboard/app.py)
 
 Stops both on Ctrl+C.
@@ -74,7 +74,7 @@ def _kill_existing_backend(port: int = 2222) -> None:
         return
 
     # Further filter by inspecting the full command line, only killing
-    # processes that look like our MiragePot backend (contain 'backend.server').
+    # processes that look like our MiragePot backend (contain 'miragepot.server' or 'backend.server').
     for pid in target_pids:
         try:
             cmdline_proc = subprocess.run(
@@ -88,7 +88,9 @@ def _kill_existing_backend(port: int = 2222) -> None:
             continue
 
         cmdline = cmdline_proc.stdout.strip()
-        if not cmdline or "backend.server" not in cmdline:
+        if not cmdline or (
+            "miragepot.server" not in cmdline and "backend.server" not in cmdline
+        ):
             # Do not touch unrelated Python processes.
             continue
 
@@ -107,7 +109,7 @@ def _kill_existing_backend(port: int = 2222) -> None:
 def main() -> None:
     _kill_existing_backend(port=2222)
 
-    backend_cmd = [sys.executable, "-m", "backend.server"]
+    backend_cmd = [sys.executable, "-m", "miragepot.server"]
     dashboard_cmd = ["streamlit", "run", "dashboard/app.py"]
 
     backend_proc = start_process(backend_cmd, "MiragePot backend")
