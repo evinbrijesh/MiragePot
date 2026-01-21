@@ -42,8 +42,9 @@ class TestSessionState:
         """Session state should include decoy files."""
         files = session_state["files"]
         assert "/etc/passwd" in files
-        assert "/root/passwords.txt" in files
+        # Honeytokens now in more realistic locations
         assert "/var/www/html/.env" in files
+        assert "/root/.bashrc" in files  # Realistic dot files
 
 
 class TestPathNormalization:
@@ -113,8 +114,8 @@ class TestBuiltinCommands:
         """ls should list directory contents."""
         handled, output = handle_builtin("ls", session_state)
         assert handled is True
-        # Should list files in /root
-        assert "notes.txt" in output or "passwords.txt" in output
+        # Should list files/directories in /root (now includes XDG dirs)
+        assert "Desktop" in output or "Documents" in output or "scripts" in output
 
     def test_ls_with_flags(self, session_state):
         """ls -la should show detailed listing."""

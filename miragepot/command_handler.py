@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Tuple, Optional
+from typing import Any, Dict, Tuple, Optional, cast
 
 from .ai_interface import query_llm
 from .filesystem import (
@@ -458,12 +458,152 @@ def _load_cache() -> Dict[str, str]:
 CACHE = _load_cache()
 
 
+def _generate_realistic_bash_history() -> str:
+    """Generate a realistic-looking bash history for a server admin."""
+    return """cd /var/www/html
+ls -la
+vim config.php
+systemctl status nginx
+tail -f /var/log/nginx/error.log
+df -h
+free -m
+top
+htop
+ps aux | grep nginx
+systemctl restart nginx
+cat /etc/nginx/sites-available/default
+nano /etc/nginx/sites-available/default
+nginx -t
+systemctl reload nginx
+mysql -u root -p
+cd /home/user
+ls -la
+chown -R www-data:www-data /var/www/html
+chmod 755 /var/www/html
+apt update
+apt upgrade -y
+apt install htop
+cd ~
+ssh-keygen -t rsa -b 4096
+cat ~/.ssh/id_rsa.pub
+vim ~/.ssh/authorized_keys
+history
+clear
+ls
+pwd
+whoami
+uname -a
+cat /etc/os-release
+ip addr
+netstat -tulpn
+ss -tulpn
+crontab -l
+crontab -e
+vim /etc/crontab
+tail -100 /var/log/auth.log
+grep "Failed password" /var/log/auth.log
+fail2ban-client status sshd
+iptables -L -n
+ufw status
+docker ps
+docker images
+git pull origin main
+npm install
+npm run build
+pm2 list
+pm2 restart all
+"""
+
+
+def _generate_auth_log() -> str:
+    """Generate realistic auth.log entries."""
+    from datetime import datetime, timedelta
+    import random
+
+    lines = []
+    base_time = datetime.now() - timedelta(days=7)
+
+    # Some successful logins
+    users = ["root", "user", "admin"]
+    ips = ["192.168.1.100", "10.0.0.50", "172.16.0.25"]
+
+    for i in range(50):
+        ts = base_time + timedelta(hours=random.randint(0, 168))
+        ts_str = ts.strftime("%b %d %H:%M:%S")
+
+        if random.random() < 0.7:  # 70% successful
+            user = random.choice(users)
+            ip = random.choice(ips)
+            lines.append(
+                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: Accepted password for {user} from {ip} port {random.randint(40000, 60000)} ssh2"
+            )
+            lines.append(
+                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: pam_unix(sshd:session): session opened for user {user} by (uid=0)"
+            )
+        else:  # 30% failed
+            fake_user = random.choice(
+                ["admin", "test", "guest", "ubuntu", "postgres", "mysql"]
+            )
+            fake_ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
+            lines.append(
+                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: Failed password for invalid user {fake_user} from {fake_ip} port {random.randint(40000, 60000)} ssh2"
+            )
+
+    lines.sort()
+    return "\n".join(lines[-30:]) + "\n"  # Return last 30 entries
+
+
+def _generate_syslog() -> str:
+    """Generate realistic syslog entries."""
+    from datetime import datetime, timedelta
+    import random
+
+    lines = []
+    base_time = datetime.now() - timedelta(hours=24)
+
+    services = ["systemd", "kernel", "cron", "nginx", "mysql", "snapd"]
+
+    messages = [
+        ("systemd", "Started Session {} of user root."),
+        ("systemd", "Starting Daily apt download activities..."),
+        ("systemd", "Started Daily apt download activities."),
+        ("kernel", "[UFW BLOCK] IN=eth0 OUT= MAC=... SRC={} DST=10.0.0.1 LEN=40"),
+        (
+            "cron",
+            "(root) CMD (test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily ))",
+        ),
+        ("nginx", '10.0.0.1 - - [{}] "GET / HTTP/1.1" 200 612'),
+        ("snapd", "autorefresh.go:540: auto-refresh: all snaps are up-to-date"),
+    ]
+
+    for i in range(40):
+        ts = base_time + timedelta(minutes=random.randint(0, 1440))
+        ts_str = ts.strftime("%b %d %H:%M:%S")
+        service, msg_template = random.choice(messages)
+
+        if "{}" in msg_template:
+            msg = msg_template.format(random.randint(1, 100))
+        else:
+            msg = msg_template
+
+        lines.append(
+            f"{ts_str} miragepot {service}[{random.randint(100, 9999)}]: {msg}"
+        )
+
+    lines.sort()
+    return "\n".join(lines[-25:]) + "\n"
+
+
 def init_session_state() -> Dict[str, Any]:
     """Initialize a new session state for a connection.
 
-    This seeds a minimal but realistic Linux-like filesystem tree so that
-    common reconnaissance commands (ls /, ls /home, cat /etc/os-release,
-    etc.) behave as expected from an attacker's point of view.
+    This seeds a comprehensive, realistic Ubuntu 20.04 server filesystem that
+    would be indistinguishable from a real production server. Includes:
+    - Standard XDG user directories
+    - Realistic dot files (.bashrc, .profile, .bash_history, etc.)
+    - System configuration files
+    - Log files with realistic entries
+    - Honeytokens placed in natural locations
 
     Honeytokens are generated per-session for unique credential tracking.
     """
@@ -471,37 +611,108 @@ def init_session_state() -> Dict[str, Any]:
     session_id = generate_session_id()
     honeytokens = init_honeytokens(session_id)
 
+    # Comprehensive Ubuntu 20.04 directory structure
     directories = {
+        # Root filesystem
         "/",
         "/bin",
         "/boot",
+        "/boot/grub",
         "/dev",
+        "/dev/pts",
+        "/dev/shm",
+        # /etc and subdirs
         "/etc",
+        "/etc/apt",
+        "/etc/apt/sources.list.d",
+        "/etc/cron.d",
+        "/etc/cron.daily",
+        "/etc/cron.hourly",
+        "/etc/default",
+        "/etc/init.d",
+        "/etc/logrotate.d",
+        "/etc/network",
+        "/etc/nginx",
+        "/etc/nginx/sites-available",
+        "/etc/nginx/sites-enabled",
+        "/etc/ssh",
+        "/etc/ssl",
+        "/etc/ssl/certs",
+        "/etc/ssl/private",
+        "/etc/systemd",
+        "/etc/systemd/system",
+        # /home directory
         "/home",
         "/home/user",
-        "/home/user/Documents",
+        "/home/user/.cache",
+        "/home/user/.config",
+        "/home/user/.local",
+        "/home/user/.local/share",
         "/home/user/.ssh",
+        "/home/user/Desktop",
+        "/home/user/Documents",
+        "/home/user/Downloads",
+        "/home/user/Music",
+        "/home/user/Pictures",
+        "/home/user/Public",
+        "/home/user/Templates",
+        "/home/user/Videos",
+        # Standard directories
         "/lib",
+        "/lib/x86_64-linux-gnu",
         "/lib64",
         "/media",
         "/mnt",
         "/opt",
+        "/opt/backup",
         "/proc",
+        # /root directory (admin home)
         "/root",
         "/root/.aws",
+        "/root/.cache",
+        "/root/.config",
+        "/root/.local",
+        "/root/.local/share",
         "/root/.ssh",
+        "/root/Desktop",
+        "/root/Documents",
+        "/root/Downloads",
+        "/root/scripts",
         "/run",
+        "/run/lock",
+        "/run/sshd",
         "/sbin",
+        "/snap",
         "/srv",
         "/sys",
         "/tmp",
+        # /usr hierarchy
         "/usr",
+        "/usr/bin",
+        "/usr/include",
+        "/usr/lib",
         "/usr/local",
+        "/usr/local/bin",
+        "/usr/local/lib",
+        "/usr/sbin",
+        "/usr/share",
+        # /var hierarchy
         "/var",
+        "/var/backups",
+        "/var/cache",
+        "/var/cache/apt",
+        "/var/lib",
+        "/var/lib/mysql",
+        "/var/log",
+        "/var/log/nginx",
+        "/var/mail",
+        "/var/run",
+        "/var/spool",
+        "/var/spool/cron",
+        "/var/tmp",
         "/var/www",
         "/var/www/html",
-        "/var/log",
-        "/opt/legacy_backup",
+        "/var/www/html/assets",
     }
 
     # Generate file contents using honeytokens
@@ -509,8 +720,43 @@ def init_session_state() -> Dict[str, Any]:
     passwords_content = generate_passwords_file_content(honeytokens)
     aws_credentials_content = generate_aws_credentials_content(honeytokens)
 
+    # Get honeytoken values safely
+    db_password_token = honeytokens.tokens.get("db_password")
+    db_password = (
+        db_password_token.value if db_password_token else "Prod_DB_2024!secure"
+    )
+
+    stripe_key_token = honeytokens.tokens.get("stripe_api")
+    stripe_key = (
+        stripe_key_token.value if stripe_key_token else "sk_live_51ABC123def456"
+    )
+
+    aws_key_token = honeytokens.tokens.get("aws_access_key")
+    aws_key = aws_key_token.value if aws_key_token else "AKIAIOSFODNN7EXAMPLE"
+
+    aws_secret_token = honeytokens.tokens.get("aws_secret_key")
+    aws_secret = (
+        aws_secret_token.value
+        if aws_secret_token
+        else "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    )
+
     files: Dict[str, str] = {
+        # =====================================================================
+        # /etc - System configuration files
+        # =====================================================================
         "/etc/hostname": "miragepot\n",
+        "/etc/hosts": (
+            "127.0.0.1\tlocalhost\n"
+            "127.0.1.1\tmiragepot\n"
+            "10.0.0.5\tdb.internal.local\n"
+            "10.0.0.10\tcache.internal.local\n"
+            "\n"
+            "# The following lines are desirable for IPv6 capable hosts\n"
+            "::1     localhost ip6-localhost ip6-loopback\n"
+            "ff02::1 ip6-allnodes\n"
+            "ff02::2 ip6-allrouters\n"
+        ),
         "/etc/os-release": (
             'NAME="Ubuntu"\n'
             'VERSION="20.04.6 LTS (Focal Fossa)"\n'
@@ -521,6 +767,9 @@ def init_session_state() -> Dict[str, Any]:
             'HOME_URL="https://www.ubuntu.com/"\n'
             'SUPPORT_URL="https://help.ubuntu.com/"\n'
             'BUG_REPORT_URL="https://bugs.launchpad.net/ubuntu/"\n'
+            'PRIVACY_POLICY_URL="https://www.ubuntu.com/legal/terms-and-policies/privacy-policy"\n'
+            "VERSION_CODENAME=focal\n"
+            "UBUNTU_CODENAME=focal\n"
         ),
         "/etc/passwd": (
             "root:x:0:0:root:/root:/bin/bash\n"
@@ -532,66 +781,615 @@ def init_session_state() -> Dict[str, Any]:
             "man:x:6:12:man:/var/cache/man:/usr/sbin/nologin\n"
             "lp:x:7:7:lp:/var/spool/lpd:/usr/sbin/nologin\n"
             "mail:x:8:8:mail:/var/mail:/usr/sbin/nologin\n"
+            "news:x:9:9:news:/var/spool/news:/usr/sbin/nologin\n"
+            "uucp:x:10:10:uucp:/var/spool/uucp:/usr/sbin/nologin\n"
+            "proxy:x:13:13:proxy:/bin:/usr/sbin/nologin\n"
             "www-data:x:33:33:www-data:/var/www:/usr/sbin/nologin\n"
-            "sshd:x:100:65534::/run/sshd:/usr/sbin/nologin\n"
-            "user:x:1000:1000:Mirage User:/home/user:/bin/bash\n"
+            "backup:x:34:34:backup:/var/backups:/usr/sbin/nologin\n"
+            "list:x:38:38:Mailing List Manager:/var/list:/usr/sbin/nologin\n"
+            "irc:x:39:39:ircd:/var/run/ircd:/usr/sbin/nologin\n"
+            "gnats:x:41:41:Gnats Bug-Reporting System (admin):/var/lib/gnats:/usr/sbin/nologin\n"
+            "nobody:x:65534:65534:nobody:/nonexistent:/usr/sbin/nologin\n"
+            "systemd-network:x:100:102:systemd Network Management,,,:/run/systemd:/usr/sbin/nologin\n"
+            "systemd-resolve:x:101:103:systemd Resolver,,,:/run/systemd:/usr/sbin/nologin\n"
+            "systemd-timesync:x:102:104:systemd Time Synchronization,,,:/run/systemd:/usr/sbin/nologin\n"
+            "messagebus:x:103:106::/nonexistent:/usr/sbin/nologin\n"
+            "syslog:x:104:110::/home/syslog:/usr/sbin/nologin\n"
+            "_apt:x:105:65534::/nonexistent:/usr/sbin/nologin\n"
+            "sshd:x:106:65534::/run/sshd:/usr/sbin/nologin\n"
+            "mysql:x:107:115:MySQL Server,,,:/nonexistent:/bin/false\n"
+            "user:x:1000:1000:System User,,,:/home/user:/bin/bash\n"
         ),
-        "/root/notes.txt": (
-            "TODO: migrate old customer database from /opt/legacy_backup/db_backup.sql\n"
-            "NOTE: web app config under /var/www/html/.env and config.php\n"
-            "NOTE: AWS credentials in ~/.aws/credentials\n"
+        "/etc/shadow": (
+            "root:$6$rounds=4096$randomsalt$hashedpasswordhere:19500:0:99999:7:::\n"
+            "daemon:*:19000:0:99999:7:::\n"
+            "bin:*:19000:0:99999:7:::\n"
+            "sys:*:19000:0:99999:7:::\n"
+            "sync:*:19000:0:99999:7:::\n"
+            "www-data:*:19000:0:99999:7:::\n"
+            "sshd:*:19000:0:99999:7:::\n"
+            "mysql:!:19200:0:99999:7:::\n"
+            "user:$6$rounds=4096$anothersalt$userhashhere:19400:0:99999:7:::\n"
         ),
-        # Use honeytoken-generated passwords file
-        "/root/passwords.txt": passwords_content,
-        "/home/user/Documents/passwords.txt": (
-            "# Personal passwords (legacy, do not use)\n"
-            "email:user@example.local:UserMail!2021\n"
-            "forum:user_forum:ForumPass#42\n"
-            "old_vpn:user_vpn:VPN-Access-Temp1\n"
+        "/etc/group": (
+            "root:x:0:\n"
+            "daemon:x:1:\n"
+            "bin:x:2:\n"
+            "sys:x:3:\n"
+            "adm:x:4:syslog,user\n"
+            "tty:x:5:\n"
+            "disk:x:6:\n"
+            "lp:x:7:\n"
+            "mail:x:8:\n"
+            "news:x:9:\n"
+            "uucp:x:10:\n"
+            "man:x:12:\n"
+            "proxy:x:13:\n"
+            "kmem:x:15:\n"
+            "dialout:x:20:\n"
+            "fax:x:21:\n"
+            "voice:x:22:\n"
+            "cdrom:x:24:user\n"
+            "floppy:x:25:\n"
+            "tape:x:26:\n"
+            "sudo:x:27:user\n"
+            "audio:x:29:\n"
+            "dip:x:30:user\n"
+            "www-data:x:33:\n"
+            "backup:x:34:\n"
+            "operator:x:37:\n"
+            "list:x:38:\n"
+            "irc:x:39:\n"
+            "src:x:40:\n"
+            "gnats:x:41:\n"
+            "shadow:x:42:\n"
+            "utmp:x:43:\n"
+            "video:x:44:\n"
+            "sasl:x:45:\n"
+            "plugdev:x:46:user\n"
+            "staff:x:50:\n"
+            "games:x:60:\n"
+            "users:x:100:\n"
+            "nogroup:x:65534:\n"
+            "mysql:x:115:\n"
+            "ssh:x:116:\n"
+            "user:x:1000:\n"
         ),
-        "/home/user/Documents/creds.txt": (
-            "DB_HOST=db.internal.local\n"
-            "DB_USER=mirage_user\n"
-            "DB_PASSWORD=FAKE_DB_PASSWORD_12345\n"
-            "API_KEY=DUMMY_INTERNAL_API_KEY_XYZ123\n"
+        "/etc/resolv.conf": (
+            "# Generated by NetworkManager\n"
+            "nameserver 8.8.8.8\n"
+            "nameserver 8.8.4.4\n"
+            "search internal.local\n"
         ),
-        "/var/www/html/index.php": ("<?php echo 'Hello from MiragePot!'; ?>\n"),
-        # Use honeytoken-generated .env file
+        "/etc/fstab": (
+            "# /etc/fstab: static file system information.\n"
+            "#\n"
+            "# <file system> <mount point>   <type>  <options>       <dump>  <pass>\n"
+            "UUID=a1b2c3d4-e5f6-7890-abcd-ef1234567890 /               ext4    errors=remount-ro 0       1\n"
+            "UUID=b2c3d4e5-f6a7-8901-bcde-f12345678901 /boot           ext4    defaults        0       2\n"
+            "/swap.img\tnone\tswap\tsw\t0\t0\n"
+        ),
+        "/etc/crontab": (
+            "# /etc/crontab: system-wide crontab\n"
+            "SHELL=/bin/sh\n"
+            "PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin\n"
+            "\n"
+            "# m h dom mon dow user  command\n"
+            "17 *    * * *   root    cd / && run-parts --report /etc/cron.hourly\n"
+            "25 6    * * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.daily )\n"
+            "47 6    * * 7   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.weekly )\n"
+            "52 6    1 * *   root    test -x /usr/sbin/anacron || ( cd / && run-parts --report /etc/cron.monthly )\n"
+            "#\n"
+            "# Custom jobs\n"
+            "0 2 * * * root /root/scripts/backup.sh >> /var/log/backup.log 2>&1\n"
+            "*/5 * * * * root /usr/bin/python3 /opt/monitor/check_services.py\n"
+        ),
+        "/etc/ssh/sshd_config": (
+            "# OpenSSH server configuration\n"
+            "Port 22\n"
+            "AddressFamily any\n"
+            "ListenAddress 0.0.0.0\n"
+            "ListenAddress ::\n"
+            "\n"
+            "HostKey /etc/ssh/ssh_host_rsa_key\n"
+            "HostKey /etc/ssh/ssh_host_ecdsa_key\n"
+            "HostKey /etc/ssh/ssh_host_ed25519_key\n"
+            "\n"
+            "# Authentication\n"
+            "PermitRootLogin yes\n"
+            "PubkeyAuthentication yes\n"
+            "PasswordAuthentication yes\n"
+            "PermitEmptyPasswords no\n"
+            "ChallengeResponseAuthentication no\n"
+            "\n"
+            "UsePAM yes\n"
+            "X11Forwarding yes\n"
+            "PrintMotd no\n"
+            "AcceptEnv LANG LC_*\n"
+            "Subsystem\tsftp\t/usr/lib/openssh/sftp-server\n"
+        ),
+        "/etc/timezone": "Etc/UTC\n",
+        "/etc/localtime": "UTC\n",
+        "/etc/environment": 'PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin"\n',
+        "/etc/issue": "Ubuntu 20.04.6 LTS \\n \\l\n\n",
+        "/etc/issue.net": "Ubuntu 20.04.6 LTS\n",
+        "/etc/apt/sources.list": (
+            "deb http://archive.ubuntu.com/ubuntu focal main restricted\n"
+            "deb http://archive.ubuntu.com/ubuntu focal-updates main restricted\n"
+            "deb http://archive.ubuntu.com/ubuntu focal universe\n"
+            "deb http://archive.ubuntu.com/ubuntu focal-updates universe\n"
+            "deb http://archive.ubuntu.com/ubuntu focal multiverse\n"
+            "deb http://archive.ubuntu.com/ubuntu focal-updates multiverse\n"
+            "deb http://archive.ubuntu.com/ubuntu focal-backports main restricted universe multiverse\n"
+            "deb http://security.ubuntu.com/ubuntu focal-security main restricted\n"
+            "deb http://security.ubuntu.com/ubuntu focal-security universe\n"
+            "deb http://security.ubuntu.com/ubuntu focal-security multiverse\n"
+        ),
+        "/etc/nginx/nginx.conf": (
+            "user www-data;\n"
+            "worker_processes auto;\n"
+            "pid /run/nginx.pid;\n"
+            "include /etc/nginx/modules-enabled/*.conf;\n"
+            "\n"
+            "events {\n"
+            "    worker_connections 768;\n"
+            "}\n"
+            "\n"
+            "http {\n"
+            "    sendfile on;\n"
+            "    tcp_nopush on;\n"
+            "    tcp_nodelay on;\n"
+            "    keepalive_timeout 65;\n"
+            "    types_hash_max_size 2048;\n"
+            "\n"
+            "    include /etc/nginx/mime.types;\n"
+            "    default_type application/octet-stream;\n"
+            "\n"
+            "    ssl_protocols TLSv1.2 TLSv1.3;\n"
+            "    ssl_prefer_server_ciphers on;\n"
+            "\n"
+            "    access_log /var/log/nginx/access.log;\n"
+            "    error_log /var/log/nginx/error.log;\n"
+            "\n"
+            "    gzip on;\n"
+            "\n"
+            "    include /etc/nginx/conf.d/*.conf;\n"
+            "    include /etc/nginx/sites-enabled/*;\n"
+            "}\n"
+        ),
+        "/etc/nginx/sites-available/default": (
+            "server {\n"
+            "    listen 80 default_server;\n"
+            "    listen [::]:80 default_server;\n"
+            "\n"
+            "    root /var/www/html;\n"
+            "    index index.php index.html index.htm;\n"
+            "\n"
+            "    server_name _;\n"
+            "\n"
+            "    location / {\n"
+            "        try_files $uri $uri/ =404;\n"
+            "    }\n"
+            "\n"
+            "    location ~ \\.php$ {\n"
+            "        include snippets/fastcgi-php.conf;\n"
+            "        fastcgi_pass unix:/var/run/php/php7.4-fpm.sock;\n"
+            "    }\n"
+            "}\n"
+        ),
+        # =====================================================================
+        # /root - Root user home directory (realistic admin setup)
+        # =====================================================================
+        "/root/.bashrc": (
+            "# ~/.bashrc: executed by bash(1) for non-login shells.\n"
+            "\n"
+            "# If not running interactively, don't do anything\n"
+            "case $- in\n"
+            "    *i*) ;;\n"
+            "      *) return;;\n"
+            "esac\n"
+            "\n"
+            "# don't put duplicate lines or lines starting with space in the history\n"
+            "HISTCONTROL=ignoreboth\n"
+            "\n"
+            "# append to the history file, don't overwrite it\n"
+            "shopt -s histappend\n"
+            "\n"
+            "# for setting history length see HISTSIZE and HISTFILESIZE in bash(1)\n"
+            "HISTSIZE=1000\n"
+            "HISTFILESIZE=2000\n"
+            "\n"
+            "# check the window size after each command\n"
+            "shopt -s checkwinsize\n"
+            "\n"
+            "# make less more friendly for non-text input files\n"
+            '[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"\n'
+            "\n"
+            "# set a fancy prompt\n"
+            "PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '\n"
+            "\n"
+            "# enable color support of ls\n"
+            "if [ -x /usr/bin/dircolors ]; then\n"
+            '    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"\n'
+            "    alias ls='ls --color=auto'\n"
+            "    alias grep='grep --color=auto'\n"
+            "fi\n"
+            "\n"
+            "# some more ls aliases\n"
+            "alias ll='ls -alF'\n"
+            "alias la='ls -A'\n"
+            "alias l='ls -CF'\n"
+            "\n"
+            "# Custom aliases\n"
+            "alias update='apt update && apt upgrade -y'\n"
+            "alias ports='netstat -tulpn'\n"
+            "alias myip='curl -s ifconfig.me'\n"
+        ),
+        "/root/.profile": (
+            "# ~/.profile: executed by Bourne-compatible login shells.\n"
+            "\n"
+            'if [ "$BASH" ]; then\n'
+            "  if [ -f ~/.bashrc ]; then\n"
+            "    . ~/.bashrc\n"
+            "  fi\n"
+            "fi\n"
+            "\n"
+            "mesg n 2> /dev/null || true\n"
+        ),
+        "/root/.bash_history": _generate_realistic_bash_history(),
+        "/root/.vimrc": (
+            '" Basic vim configuration\n'
+            "set number\n"
+            "set autoindent\n"
+            "set tabstop=4\n"
+            "set shiftwidth=4\n"
+            "set expandtab\n"
+            "set hlsearch\n"
+            "set incsearch\n"
+            "syntax on\n"
+            "set background=dark\n"
+        ),
+        "/root/.gitconfig": (
+            "[user]\n"
+            "\tname = Admin\n"
+            "\temail = admin@miragepot.local\n"
+            "[core]\n"
+            "\teditor = vim\n"
+            "[alias]\n"
+            "\tst = status\n"
+            "\tco = checkout\n"
+            "\tbr = branch\n"
+        ),
+        "/root/.ssh/authorized_keys": (
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fake_key_data_here_for_miragepot_honeypot_system admin@workstation\n"
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake_ed25519_key_for_backup backup@miragepot\n"
+        ),
+        "/root/.ssh/known_hosts": (
+            "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmd...\n"
+            "10.0.0.5 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdH...\n"
+            "db.internal.local ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI...\n"
+        ),
+        "/root/.ssh/config": (
+            "Host db\n"
+            "    HostName db.internal.local\n"
+            "    User admin\n"
+            "    IdentityFile ~/.ssh/id_rsa\n"
+            "\n"
+            "Host github.com\n"
+            "    IdentityFile ~/.ssh/id_rsa_github\n"
+        ),
+        # AWS credentials (honeytoken)
+        "/root/.aws/credentials": aws_credentials_content,
+        "/root/.aws/config": (
+            "[default]\n"
+            "region = us-east-1\n"
+            "output = json\n"
+            "\n"
+            "[profile production]\n"
+            "region = us-west-2\n"
+            "output = json\n"
+        ),
+        # Admin notes - breadcrumbs to honeytokens (moved from obvious location)
+        "/root/Documents/server-notes.txt": (
+            "Server Setup Notes - Last updated 2024-01-15\n"
+            "=============================================\n"
+            "\n"
+            "Web Application:\n"
+            "- Config: /var/www/html/config.php\n"
+            "- Environment: /var/www/html/.env\n"
+            "- Logs: /var/log/nginx/\n"
+            "\n"
+            "Database:\n"
+            "- MySQL running on db.internal.local:3306\n"
+            "- Credentials in /var/www/html/.env\n"
+            "- Backup script: /root/scripts/backup.sh\n"
+            "\n"
+            "AWS:\n"
+            "- Credentials in ~/.aws/credentials\n"
+            "- S3 bucket: company-backups-prod\n"
+            "\n"
+            "TODO:\n"
+            "- [ ] Rotate database passwords\n"
+            "- [ ] Update SSL certificates (expires March)\n"
+            "- [ ] Migrate legacy data from /opt/backup/\n"
+        ),
+        # Backup script (realistic admin tool)
+        "/root/scripts/backup.sh": (
+            "#!/bin/bash\n"
+            "# Daily backup script\n"
+            "# Run via cron at 2 AM\n"
+            "\n"
+            "BACKUP_DIR=/var/backups\n"
+            "DATE=$(date +%Y%m%d)\n"
+            "MYSQL_USER=backup_user\n"
+            f"MYSQL_PASS={db_password}\n"
+            "\n"
+            "# Backup MySQL databases\n"
+            "mysqldump -u $MYSQL_USER -p$MYSQL_PASS --all-databases > $BACKUP_DIR/mysql_$DATE.sql\n"
+            "\n"
+            "# Backup web files\n"
+            "tar -czf $BACKUP_DIR/www_$DATE.tar.gz /var/www/html\n"
+            "\n"
+            "# Upload to S3\n"
+            "aws s3 cp $BACKUP_DIR/mysql_$DATE.sql s3://company-backups-prod/mysql/\n"
+            "aws s3 cp $BACKUP_DIR/www_$DATE.tar.gz s3://company-backups-prod/www/\n"
+            "\n"
+            "# Cleanup old backups (keep 7 days)\n"
+            "find $BACKUP_DIR -name '*.sql' -mtime +7 -delete\n"
+            "find $BACKUP_DIR -name '*.tar.gz' -mtime +7 -delete\n"
+            "\n"
+            'echo "Backup completed: $DATE"\n'
+        ),
+        # MySQL history (honeytoken - reveals database activity)
+        "/root/.mysql_history": (
+            "show databases;\n"
+            "use production_db;\n"
+            "show tables;\n"
+            "SELECT * FROM users LIMIT 10;\n"
+            "SELECT username, email FROM users WHERE role='admin';\n"
+            "UPDATE users SET password='temp123' WHERE id=1;\n"
+            f"CREATE USER 'app_user'@'localhost' IDENTIFIED BY '{db_password}';\n"
+            "GRANT ALL PRIVILEGES ON production_db.* TO 'app_user'@'localhost';\n"
+            "FLUSH PRIVILEGES;\n"
+            "exit\n"
+        ),
+        # =====================================================================
+        # /home/user - Regular user home directory
+        # =====================================================================
+        "/home/user/.bashrc": (
+            "# ~/.bashrc: executed by bash(1) for non-login shells.\n"
+            "\n"
+            "case $- in\n"
+            "    *i*) ;;\n"
+            "      *) return;;\n"
+            "esac\n"
+            "\n"
+            "HISTCONTROL=ignoreboth\n"
+            "shopt -s histappend\n"
+            "HISTSIZE=1000\n"
+            "HISTFILESIZE=2000\n"
+            "shopt -s checkwinsize\n"
+            "\n"
+            "PS1='${debian_chroot:+($debian_chroot)}\\[\\033[01;32m\\]\\u@\\h\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]\\$ '\n"
+            "\n"
+            "if [ -x /usr/bin/dircolors ]; then\n"
+            '    eval "$(dircolors -b)"\n'
+            "    alias ls='ls --color=auto'\n"
+            "    alias grep='grep --color=auto'\n"
+            "fi\n"
+            "\n"
+            "alias ll='ls -alF'\n"
+            "alias la='ls -A'\n"
+        ),
+        "/home/user/.profile": (
+            "# ~/.profile: executed by the command interpreter for login shells.\n"
+            "\n"
+            'if [ -n "$BASH_VERSION" ]; then\n'
+            '    if [ -f "$HOME/.bashrc" ]; then\n'
+            '        . "$HOME/.bashrc"\n'
+            "    fi\n"
+            "fi\n"
+            "\n"
+            'if [ -d "$HOME/bin" ] ; then\n'
+            '    PATH="$HOME/bin:$PATH"\n'
+            "fi\n"
+        ),
+        "/home/user/.bash_history": (
+            "ls\n"
+            "cd Documents\n"
+            "ls -la\n"
+            "cat readme.txt\n"
+            "cd ..\n"
+            "pwd\n"
+            "whoami\n"
+            "sudo apt update\n"
+            "history\n"
+        ),
+        "/home/user/.ssh/authorized_keys": (
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFakeMiragePotUserKey user@miragepot\n"
+        ),
+        "/home/user/.ssh/known_hosts": (
+            "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq...\n"
+        ),
+        "/home/user/Documents/readme.txt": (
+            "Welcome to the system!\n"
+            "\n"
+            "For help, contact the system administrator.\n"
+            "Email: admin@company.local\n"
+        ),
+        "/home/user/Documents/work-notes.txt": (
+            "Meeting notes - 2024-01-10\n"
+            "- Discussed Q1 roadmap\n"
+            "- Need to update deployment scripts\n"
+            "- Review security audit findings\n"
+        ),
+        # Hidden credentials in user's config (looks realistic)
+        "/home/user/.config/development.env": (
+            "# Development environment settings\n"
+            "DEV_API_URL=http://localhost:3000\n"
+            "DEV_DB_HOST=localhost\n"
+            "DEV_DB_USER=dev_user\n"
+            "DEV_DB_PASS=DevPass123!\n"
+            "DEBUG=true\n"
+        ),
+        # =====================================================================
+        # /var/www/html - Web application
+        # =====================================================================
+        "/var/www/html/index.php": (
+            "<?php\n"
+            "/**\n"
+            " * Main entry point for the web application\n"
+            " * @version 2.1.0\n"
+            " */\n"
+            "\n"
+            "require_once 'config.php';\n"
+            "\n"
+            "echo '<h1>Welcome to Our Application</h1>';\n"
+            "echo '<p>Server time: ' . date('Y-m-d H:i:s') . '</p>';\n"
+            "?>\n"
+        ),
         "/var/www/html/.env": env_content,
         "/var/www/html/config.php": (
             "<?php\n"
-            "$db_host = 'db.internal.local';\n"
-            "$db_user = 'mirage_user';\n"
-            "$db_pass = '"
-            + (
-                honeytokens.tokens.get("db_password").value
-                if honeytokens.tokens.get("db_password")
-                else "FAKE_DB_PASS"
-            )
-            + "';\n"
-            "$db_name = 'legacy_app';\n"
-            "// Stripe integration\n"
-            "$stripe_secret = '"
-            + (
-                honeytokens.tokens.get("stripe_api").value
-                if honeytokens.tokens.get("stripe_api")
-                else "sk_live_FAKE"
-            )
-            + "';\n"
-            "// legacy config, do not remove\n"
+            "/**\n"
+            " * Application Configuration\n"
+            " * WARNING: Do not commit this file to version control!\n"
+            " */\n"
+            "\n"
+            "// Database configuration\n"
+            "$db_config = [\n"
+            "    'host' => 'db.internal.local',\n"
+            "    'port' => 3306,\n"
+            "    'database' => 'production_db',\n"
+            "    'username' => 'app_user',\n"
+            f"    'password' => '{db_password}',\n"
+            "    'charset' => 'utf8mb4',\n"
+            "];\n"
+            "\n"
+            "// API Keys\n"
+            f"define('STRIPE_SECRET_KEY', '{stripe_key}');\n"
+            "define('STRIPE_PUBLIC_KEY', 'pk_live_51ABC123def456');\n"
+            "\n"
+            "// Application settings\n"
+            "define('APP_DEBUG', false);\n"
+            "define('APP_URL', 'https://app.company.com');\n"
+            "\n"
+            "// Session configuration\n"
+            "ini_set('session.cookie_httponly', 1);\n"
+            "ini_set('session.cookie_secure', 1);\n"
             "?>\n"
         ),
-        "/opt/legacy_backup/db_backup.sql": (
-            "-- Fake legacy database backup for MiragePot honeypot\n"
-            "CREATE TABLE users (id INT, username VARCHAR(32), password VARCHAR(64));\n"
-            "INSERT INTO users VALUES (1, 'admin', 'FAKE_HASHED_PASSWORD');\n"
+        "/var/www/html/.htaccess": (
+            "RewriteEngine On\n"
+            "RewriteCond %{REQUEST_FILENAME} !-f\n"
+            "RewriteCond %{REQUEST_FILENAME} !-d\n"
+            "RewriteRule ^(.*)$ index.php [QSA,L]\n"
+            "\n"
+            "# Deny access to sensitive files\n"
+            '<FilesMatch "^\\.(env|htaccess|htpasswd)$">\n'
+            "    Order allow,deny\n"
+            "    Deny from all\n"
+            "</FilesMatch>\n"
         ),
-        "/home/user/.ssh/authorized_keys": (
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFakeMiragePotKey user@miragepot\n"
+        "/var/www/html/assets/style.css": (
+            "/* Main application styles */\n"
+            "body { font-family: Arial, sans-serif; margin: 0; padding: 20px; }\n"
+            "h1 { color: #333; }\n"
         ),
-        # Use honeytoken-generated AWS credentials
-        "/root/.aws/credentials": aws_credentials_content,
-        "/root/.aws/config": ("[default]\nregion = us-east-1\noutput = json\n"),
+        # =====================================================================
+        # /var/log - System logs
+        # =====================================================================
+        "/var/log/auth.log": _generate_auth_log(),
+        "/var/log/syslog": _generate_syslog(),
+        "/var/log/nginx/access.log": (
+            '10.0.0.1 - - [15/Jan/2024:10:30:45 +0000] "GET / HTTP/1.1" 200 1234 "-" "Mozilla/5.0"\n'
+            '10.0.0.1 - - [15/Jan/2024:10:30:46 +0000] "GET /assets/style.css HTTP/1.1" 200 456 "-" "Mozilla/5.0"\n'
+            '192.168.1.100 - - [15/Jan/2024:11:15:22 +0000] "POST /api/login HTTP/1.1" 200 89 "-" "curl/7.68.0"\n'
+        ),
+        "/var/log/nginx/error.log": (
+            "2024/01/15 08:00:01 [notice] 1234#1234: signal process started\n"
+            '2024/01/15 09:15:33 [error] 1234#1234: *1 open() "/var/www/html/favicon.ico" failed (2: No such file or directory)\n'
+        ),
+        "/var/log/mysql/error.log": (
+            "2024-01-15T00:00:01.123456Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld (mysqld 8.0.35) starting as process 1234\n"
+            "2024-01-15T00:00:02.234567Z 0 [System] [MY-010931] [Server] /usr/sbin/mysqld: ready for connections.\n"
+        ),
+        "/var/log/dpkg.log": (
+            "2024-01-10 09:15:22 startup packages configure\n"
+            "2024-01-10 09:15:23 configure nginx:amd64 1.18.0-0ubuntu1.4 <none>\n"
+            "2024-01-10 09:15:24 status installed nginx:amd64 1.18.0-0ubuntu1.4\n"
+            "2024-01-12 14:30:15 startup packages configure\n"
+            "2024-01-12 14:30:16 upgrade openssl:amd64 1.1.1f-1ubuntu2.19 1.1.1f-1ubuntu2.20\n"
+        ),
+        # =====================================================================
+        # /opt - Optional application data and backups
+        # =====================================================================
+        "/opt/backup/db_backup_20240110.sql": (
+            "-- MySQL dump 8.0.35\n"
+            "-- Server version: 8.0.35-0ubuntu0.20.04.1\n"
+            "\n"
+            "CREATE DATABASE IF NOT EXISTS `production_db`;\n"
+            "USE `production_db`;\n"
+            "\n"
+            "CREATE TABLE `users` (\n"
+            "  `id` int NOT NULL AUTO_INCREMENT,\n"
+            "  `username` varchar(50) NOT NULL,\n"
+            "  `email` varchar(100) NOT NULL,\n"
+            "  `password_hash` varchar(255) NOT NULL,\n"
+            "  `role` enum('user','admin') DEFAULT 'user',\n"
+            "  `created_at` timestamp DEFAULT CURRENT_TIMESTAMP,\n"
+            "  PRIMARY KEY (`id`)\n"
+            ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;\n"
+            "\n"
+            "INSERT INTO `users` VALUES\n"
+            "(1,'admin','admin@company.com','$2y$10$hashedpassword...','admin','2023-06-15 10:00:00'),\n"
+            "(2,'john.doe','john@company.com','$2y$10$anotherhash...','user','2023-07-20 14:30:00'),\n"
+            "(3,'jane.smith','jane@company.com','$2y$10$yetanother...','user','2023-08-05 09:15:00');\n"
+        ),
+        # =====================================================================
+        # /proc - Process information (limited fake entries)
+        # =====================================================================
+        "/proc/version": "Linux version 5.15.0-86-generic (buildd@lcy02-amd64-086) (gcc (Ubuntu 9.4.0-1ubuntu1~20.04.2) 9.4.0, GNU ld (GNU Binutils for Ubuntu) 2.34) #96-Ubuntu SMP Wed Sep 20 08:23:49 UTC 2023\n",
+        "/proc/cpuinfo": (
+            "processor\t: 0\n"
+            "vendor_id\t: GenuineIntel\n"
+            "cpu family\t: 6\n"
+            "model\t\t: 85\n"
+            "model name\t: Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz\n"
+            "stepping\t: 4\n"
+            "microcode\t: 0x5003604\n"
+            "cpu MHz\t\t: 2499.998\n"
+            "cache size\t: 33792 KB\n"
+            "physical id\t: 0\n"
+            "siblings\t: 2\n"
+            "core id\t\t: 0\n"
+            "cpu cores\t: 1\n"
+            "flags\t\t: fpu vme de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov pat pse36 clflush mmx fxsr sse sse2 ss ht syscall nx pdpe1gb rdtscp lm constant_tsc arch_perfmon rep_good nopl xtopology\n"
+            "bogomips\t: 4999.99\n"
+            "\n"
+            "processor\t: 1\n"
+            "vendor_id\t: GenuineIntel\n"
+            "cpu family\t: 6\n"
+            "model\t\t: 85\n"
+            "model name\t: Intel(R) Xeon(R) Platinum 8175M CPU @ 2.50GHz\n"
+            "cpu MHz\t\t: 2499.998\n"
+            "cache size\t: 33792 KB\n"
+            "cpu cores\t: 1\n"
+        ),
+        "/proc/meminfo": (
+            "MemTotal:        4028440 kB\n"
+            "MemFree:         1524680 kB\n"
+            "MemAvailable:    2847320 kB\n"
+            "Buffers:          145892 kB\n"
+            "Cached:          1356744 kB\n"
+            "SwapCached:            0 kB\n"
+            "Active:          1523456 kB\n"
+            "Inactive:         723456 kB\n"
+            "SwapTotal:       2097148 kB\n"
+            "SwapFree:        2097148 kB\n"
+        ),
+        "/proc/uptime": "1234567.89 2345678.90\n",
+        "/proc/loadavg": "0.15 0.10 0.05 1/234 5678\n",
     }
 
     return {
@@ -1227,10 +2025,12 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
         return True, handle_find_command(args, state)
 
     # System state commands
-    sys_state: SystemState = state.get("system_state")
-    if sys_state is None:
+    sys_state_raw = state.get("system_state")
+    if sys_state_raw is None:
         sys_state = init_system_state()
         state["system_state"] = sys_state
+    else:
+        sys_state = cast(SystemState, sys_state_raw)
 
     if stripped.startswith("ps"):
         args = stripped[2:].strip()
@@ -1580,14 +2380,21 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
         return ""  # just re-prompt
 
     # Analyze command for TTP indicators
-    ttp_state: SessionTTPState = session_state.get("ttp_state")
-    if ttp_state is None:
+    ttp_state_raw = session_state.get("ttp_state")
+    if ttp_state_raw is None:
         ttp_state = init_ttp_state()
         session_state["ttp_state"] = ttp_state
+    else:
+        ttp_state = cast(SessionTTPState, ttp_state_raw)
     analyze_command(cmd, ttp_state)
 
     # Check for honeytoken access
-    honeytokens: SessionHoneytokens = session_state.get("honeytokens")
+    honeytokens_raw = session_state.get("honeytokens")
+    honeytokens = (
+        cast(SessionHoneytokens, honeytokens_raw)
+        if honeytokens_raw is not None
+        else None
+    )
     if honeytokens is not None:
         # Check if command accesses any honeytokens
         accessed_tokens = check_command_for_token_access(cmd, honeytokens)

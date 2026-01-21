@@ -269,11 +269,17 @@ class TestFindCommand:
                 assert line.startswith("/root"), (
                     f"Expected path under /root, got: {line}"
                 )
-                # Should not be a directory (we check that the output contains files)
-                # Files we know exist: notes.txt, passwords.txt, .aws/credentials, .aws/config
-                assert any(
-                    line.endswith(ext) for ext in [".txt", "/credentials", "/config"]
-                ), f"Unexpected file in output: {line}"
+                # Verify these are files (not directories)
+                # Files can have extensions, be hidden files (start with .),
+                # or be special files like authorized_keys, credentials, config
+                filename = line.split("/")[-1]
+                is_valid_file = (
+                    "." in filename  # Has extension (e.g., .txt, .sh)
+                    or filename.startswith(".")  # Hidden file (e.g., .bashrc)
+                    or filename
+                    in ("authorized_keys", "credentials", "config", "known_hosts")
+                )
+                assert is_valid_file, f"Unexpected file in output: {line}"
 
     def test_find_nonexistent_dir(self):
         """find handles nonexistent directory."""

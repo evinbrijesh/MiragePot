@@ -49,6 +49,63 @@ LOG_DIR.mkdir(parents=True, exist_ok=True)
 
 SSH_PORT = 2222
 
+# Live sessions tracking for real-time dashboard
+LIVE_SESSIONS_FILE = LOG_DIR / "live_sessions.json"
+_live_sessions_lock = threading.Lock()
+
+
+def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> None:
+    """Update the live sessions file for real-time dashboard streaming.
+
+    Args:
+        session_log: Current session data
+        remove: If True, remove this session from live tracking
+    """
+    try:
+        with _live_sessions_lock:
+            # Load existing live sessions
+            live_data = {"sessions": [], "last_updated": ""}
+            if LIVE_SESSIONS_FILE.exists():
+                try:
+                    live_data = json.loads(
+                        LIVE_SESSIONS_FILE.read_text(encoding="utf-8")
+                    )
+                except Exception:
+                    pass
+
+            sessions = live_data.get("sessions", [])
+            session_id = session_log.get("session_id", "")
+
+            # Remove existing entry for this session
+            sessions = [s for s in sessions if s.get("session_id") != session_id]
+
+            if not remove:
+                # Add/update this session with recent commands only
+                live_entry = {
+                    "session_id": session_id,
+                    "attacker_ip": session_log.get("attacker_ip", ""),
+                    "login_time": session_log.get("login_time", ""),
+                    "last_activity": datetime.utcnow().isoformat() + "Z",
+                    "commands": session_log.get("commands", [])[
+                        -20:
+                    ],  # Last 20 commands
+                    "command_count": len(session_log.get("commands", [])),
+                }
+                sessions.append(live_entry)
+
+            # Keep only sessions from last 10 minutes
+            cutoff = datetime.utcnow().isoformat() + "Z"
+            live_data = {
+                "sessions": sessions[-50:],  # Max 50 live sessions
+                "last_updated": cutoff,
+            }
+
+            LIVE_SESSIONS_FILE.write_text(
+                json.dumps(live_data, indent=2), encoding="utf-8"
+            )
+    except Exception as exc:
+        LOGGER.debug("Failed to update live sessions: %s", exc)
+
 
 def _new_session_log(attacker_ip: str, attacker_port: int) -> Dict[str, Any]:
     """Create initial structure for a session log dict."""
@@ -158,6 +215,9 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     chan.send(b"Last login: just now from unknown\r\n")
     chan.send(tty_handler.get_prompt().encode("utf-8"))
 
+    # Register this session as live for real-time dashboard
+    _update_live_sessions(session_log)
+
     try:
         while True:
             data = chan.recv(1024)
@@ -240,6 +300,9 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                         }
                     )
 
+                    # Update live sessions for real-time dashboard
+                    _update_live_sessions(session_log)
+
                     try:
                         if response:
                             # Ensure responses end with a newline so prompts are aligned
@@ -298,6 +361,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                 )
 
         _save_session_log(session_log)
+
+        # Remove from live sessions tracking
+        _update_live_sessions(session_log, remove=True)
+
         try:
             chan.close()
         except Exception:

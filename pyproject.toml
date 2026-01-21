@@ -65,6 +65,11 @@ docs = [
     "mkdocs>=1.5.0",
     "mkdocs-material>=9.0.0",
 ]
+dashboard = [
+    "plotly>=5.18.0",
+    "geoip2>=4.7.0",
+    "pandas>=2.0.0",
+]
 
 [project.scripts]
 miragepot = "miragepot.__main__:main"
