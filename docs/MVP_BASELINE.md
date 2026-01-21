@@ -4,7 +4,7 @@ This document defines the Minimum Viable Product (MVP) specification for MirageP
 
 **Author:** Evin Brijesh  
 **Created:** January 2026  
-**Version:** 2.0 (Updated with Advanced Features)
+**Version:** 2.1 (Synced to Current Implementation)
 
 ---
 
@@ -50,15 +50,16 @@ This document defines the Minimum Viable Product (MVP) specification for MirageP
 | Cache System | Fast responses for common commands | Critical | ✅ |
 | LLM Integration | AI-generated responses for unknown commands | Critical | ✅ |
 | Fake Filesystem | In-memory filesystem simulation | High | ✅ |
-| Built-in Commands | pwd, cd, ls, cat, mkdir, touch, rm, echo | High | ✅ |
+| Built-in Commands | Simulated filesystem commands (pwd, cd, ls, cat, mkdir, touch, rm, echo, chmod, chown, stat, find) | High | ✅ |
+| Fake System Commands | Simulated process/network/system commands (ps, top, netstat, ss, free, uptime, w, who, hostname, uname, id, whoami) | High | ✅ |
 | Exit Handling | Proper session termination on exit/logout | High | ✅ |
-| TTY Emulation | Full terminal with history, tab completion, ANSI | High | ✅ |
+| TTY Emulation | Interactive TTY (history, tab completion, Ctrl+C/D/L, ANSI clear). Note: left/right cursor movement is intentionally not implemented yet. | High | ✅ |
 
 #### 1.2.3 AI/LLM Integration
 | Feature | Description | Priority | Status |
 |---------|-------------|----------|--------|
 | Ollama Connection | Connect to local Ollama instance | Critical | ✅ |
-| Model Support | Support phi3 model (minimum) | Critical | ✅ |
+| Model Support | Support phi3 via Ollama (phi3 or phi3:latest) | Critical | ✅ |
 | System Prompt | Customizable system prompt | High | ✅ |
 | Response Cleaning | Remove LLM artifacts from output | High | ✅ |
 | Fallback Mode | Graceful degradation when LLM unavailable | High | ✅ |
@@ -84,6 +85,9 @@ This document defines the Minimum Viable Product (MVP) specification for MirageP
 | Session Overview | List all sessions | High | ✅ |
 | Command Timeline | View commands per session | High | ✅ |
 | Download Capture | Log file download attempts | High | ✅ |
+| Live Sessions | Real-time active sessions stream (data/logs/live_sessions.json) | High | ✅ |
+| Session Tagging | Analyst tags persisted to data/session_tags.json | Medium | ✅ |
+| Analytics | Charts, filtering/search, SSH fingerprint insights, TTP visualization, honeytoken analytics | High | ✅ |
 
 ### 1.3 Required Components
 
@@ -112,7 +116,9 @@ MiragePot/
 ├── data/                   # Data files
 │   ├── cache.json          # Cached responses
 │   ├── system_prompt.txt   # LLM prompt
+│   ├── session_tags.json   # Analyst tags (generated)
 │   └── logs/               # Session logs
+│       └── live_sessions.json  # Live sessions stream (generated)
 ├── tests/                  # Test suite (558+ tests)
 └── docs/                   # Documentation
 ```
@@ -151,7 +157,7 @@ MiragePot/
 | Response Validator | 88 | Anti-hallucination checks |
 | Honeytokens | 56 | Token generation, access tracking |
 | Session Export | 29 | Export formats, replay |
-| **TOTAL** | **558** | All tests passing |
+| **TOTAL** | **558** | 558 tests passing (pytest) |
 
 ### 1.5 Quality Standards
 
@@ -161,7 +167,7 @@ MiragePot/
 | Code Style | PEP 8 compliant | ✅ |
 | Type Hints | Public functions | ✅ All functions |
 | Docstrings | All modules, classes | ✅ All functions |
-| Test Coverage | 40% | ✅ 558 tests |
+| Test Coverage | 40% | ✅ 558 tests passing |
 
 ---
 
@@ -351,10 +357,11 @@ Use this checklist to track MVP completion. Mark items with `[x]` when complete.
 
 #### Strengths
 - Comprehensive test coverage (558 tests)
-- Full TTY emulation with realistic terminal behavior
+- Realistic interactive TTY (history, tab completion, control keys)
 - Advanced security features (TTP detection, honeytokens)
 - Session export and replay capabilities
 - Anti-hallucination guardrails for LLM responses
+- Elite dashboard (real-time live sessions, tagging, analytics)
 
 ---
 
@@ -376,13 +383,16 @@ Captures detailed SSH client metadata:
 ### 4.2 Full TTY/Prompt Realism (Feature 2)
 **File:** `miragepot/tty_handler.py` | **Tests:** 36
 
-Complete terminal emulation:
+Interactive terminal emulation:
 - Command history (up/down arrows)
 - Tab completion for commands and files
-- Cursor movement and line editing
+- Basic line editing (backspace)
 - Control characters (Ctrl+C, Ctrl+D, Ctrl+L)
 - ANSI escape sequence handling
 - Realistic bash-like prompts
+
+Notes:
+- Left/right cursor movement is intentionally not implemented yet (TODO in code); other core interactions are implemented and tested.
 
 ### 4.3 Enhanced Fake Filesystem (Feature 3)
 **File:** `miragepot/filesystem.py` | **Tests:** 37
@@ -438,7 +448,7 @@ Validates LLM responses:
 **File:** `miragepot/command_handler.py` | **Tests:** 51 (14 new)
 
 Comprehensive injection protection:
-- 80+ injection patterns
+- 88 pattern families total (72 base + 16 encoded patterns)
 - XML/HTML-style markers
 - Jailbreak patterns (DAN, god mode, etc.)
 - Encoded injections (base64, hex, URL)
@@ -467,6 +477,20 @@ Export and replay sessions:
 - Session replay with timing
 - Iterator-based replay API
 - Session listing and management
+
+### 4.11 Elite Dashboard (Feature 11)
+**File:** `dashboard/app.py`
+
+Advanced dashboard capabilities beyond the basic session viewer:
+- Real-time live session streaming via `data/logs/live_sessions.json`
+- Session tagging persisted to `data/session_tags.json`
+- Filtering/search and summary analytics across sessions
+- TTP/stage visualization and per-session risk badges
+- Download/payload capture views
+- Honeytoken access and exfiltration analytics
+- SSH fingerprint insights (client version, negotiated algorithms)
+- GeoIP mapping via IP-API fallback (no local database required)
+- Optional Plotly charts when `plotly` is installed
 
 ---
 
@@ -520,22 +544,27 @@ Track evaluations over time to measure progress.
 
 ---
 
-## Appendix A: Cache Requirements
+## Appendix A: Command Coverage Baseline
 
-The MVP cache (`data/cache.json`) should include responses for at least these commands:
+The MVP should support these commands with realistic output.
+
+Implementation note:
+- Some commands are answered from `data/cache.json` (fast-path).
+- Others are simulated dynamically (fake filesystem, fake system state) and therefore do not need to exist in the cache to be supported.
 
 ```
 whoami, id, hostname, uname, uname -a, uname -r,
 date, uptime, w, who, last, 
 ps, ps aux, top,
 df, df -h, free, free -h,
-ifconfig, ip addr, netstat -tuln,
+ifconfig, ip addr, netstat -tulpn, ss -tulpn,
 cat /etc/passwd, cat /etc/hosts, cat /etc/os-release,
 env, printenv, echo $PATH, echo $HOME, echo $USER
 ```
 
-**Minimum:** 30 cached commands  
-**Recommended:** 50+ cached commands
+**Cache guidance (data/cache.json):**
+- Minimum: 30 cached commands
+- Recommended: 50+ cached commands (the rest can be simulated)
 
 ---
 
