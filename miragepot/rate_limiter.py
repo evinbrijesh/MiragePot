@@ -151,11 +151,28 @@ class RateLimiter:
             - reason: Human-readable reason if rejected
         """
         with self._lock:
+            LOGGER.debug(
+                "Rate limiter checking IP: %s (current active: %d/%d total)",
+                ip,
+                self._active_count,
+                self.max_total_connections,
+            )
+
             # Check if IP is blocked
             if ip in self._connections:
                 info = self._connections[ip]
+                LOGGER.debug(
+                    "IP %s - existing connections: %d/%d, blocked_until: %s",
+                    ip,
+                    info.count,
+                    self.max_connections_per_ip,
+                    info.blocked_until,
+                )
                 if info.blocked_until and time.time() < info.blocked_until:
                     remaining = int(info.blocked_until - time.time())
+                    LOGGER.warning(
+                        "IP %s is BLOCKED for %d more seconds", ip, remaining
+                    )
                     return (
                         False,
                         f"IP {ip} is blocked for {remaining} more seconds",
@@ -163,6 +180,11 @@ class RateLimiter:
 
             # Check global connection limit
             if self._active_count >= self.max_total_connections:
+                LOGGER.warning(
+                    "Global connection limit reached: %d/%d",
+                    self._active_count,
+                    self.max_total_connections,
+                )
                 return (
                     False,
                     f"Maximum total connections ({self.max_total_connections}) reached",
@@ -185,6 +207,7 @@ class RateLimiter:
                         f"Too many connections from {ip}. Blocked for {self.block_duration} seconds.",
                     )
 
+            LOGGER.debug("Rate limiter: ALLOWING connection from %s", ip)
             return (True, "")
 
     def register_connection(self, ip: str) -> None:
@@ -268,7 +291,7 @@ def get_rate_limiter() -> RateLimiter:
         if _rate_limiter is None:
             # Import config here to avoid circular dependency
             from .config import get_security_config
-            
+
             security_config = get_security_config()
             _rate_limiter = RateLimiter(
                 max_connections_per_ip=security_config.max_connections_per_ip,
