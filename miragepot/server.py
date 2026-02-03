@@ -34,13 +34,21 @@ from .ai_interface import verify_ollama_setup
 from .config import get_config
 from .ttp_detector import get_attack_summary
 from .honeytokens import get_honeytokens_summary
+from .rate_limiter import get_rate_limiter
 
 # Initialize color output for local console
 colorama_init(autoreset=True)
 
 # Basic logging configuration for server events (not session commands)
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.DEBUG,  # Changed to DEBUG for enhanced diagnostics
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
 LOGGER = logging.getLogger(__name__)
+
+# Enable Paramiko debug logging for SSH handshake diagnostics
+paramiko_logger = logging.getLogger("paramiko")
+paramiko_logger.setLevel(logging.DEBUG)
 
 # Directories for logs
 config = get_config()
@@ -151,21 +159,102 @@ def _save_session_log(session_log: Dict[str, Any]) -> None:
 
 def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None:
     attacker_ip, attacker_port = addr[0], addr[1]
+
+    LOGGER.debug(
+        "=== _handle_client() ENTRY === Connection from %s:%s",
+        attacker_ip,
+        attacker_port,
+    )
+
+    try:
+        # Configure client socket for better compatibility
+        client.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+        client.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        # Set a reasonable timeout for the socket operations
+        client.settimeout(60)  # 60 second timeout for SSH handshake
+        LOGGER.debug("Configured client socket with keepalive and 60s timeout")
+    except Exception as e:
+        LOGGER.warning("Failed to configure client socket: %s", e)
+
+    # Rate limiting check
+    rate_limiter = get_rate_limiter()
+    can_accept, reason = rate_limiter.can_accept_connection(attacker_ip)
+    if not can_accept:
+        LOGGER.warning(
+            "Connection from %s:%s rejected: %s", attacker_ip, attacker_port, reason
+        )
+        try:
+            client.close()
+        except Exception:
+            pass
+        return
+
+    # Register the connection
+    rate_limiter.register_connection(attacker_ip)
+    LOGGER.debug(
+        "Rate limiter: ACCEPTED connection from %s:%s", attacker_ip, attacker_port
+    )
+
     LOGGER.info("New connection from %s:%s", attacker_ip, attacker_port)
 
     session_log = _new_session_log(attacker_ip, attacker_port)
     session_state = init_session_state()
     start_time = time.time()
 
+    LOGGER.debug("Creating Paramiko transport for %s:%s", attacker_ip, attacker_port)
     transport = paramiko.Transport(client)
+
+    # Configure transport for better compatibility with various SSH clients (including Windows)
+    transport.set_keepalive(30)  # Send keepalive every 30 seconds
+
+    # Enable more cipher suites and key exchange algorithms for Windows compatibility
+    # Windows SSH clients may use different algorithms than Linux clients
+    security_opts = transport.get_security_options()
+    LOGGER.debug("Default key exchange algorithms: %s", security_opts.kex)
+    LOGGER.debug("Default ciphers: %s", security_opts.ciphers)
+
     transport.add_server_key(host_key)
+    LOGGER.debug("Added host key to transport for %s:%s", attacker_ip, attacker_port)
+
     server = SSHServer()
 
     try:
+        LOGGER.debug(
+            "Starting SSH server negotiation with %s:%s", attacker_ip, attacker_port
+        )
         transport.start_server(server=server)
+        LOGGER.debug(
+            "SSH server negotiation SUCCESSFUL with %s:%s", attacker_ip, attacker_port
+        )
     except paramiko.SSHException as exc:
-        LOGGER.error("SSH negotiation failed with %s: %s", attacker_ip, exc)
+        LOGGER.error(
+            "SSH negotiation FAILED with %s:%s - Exception: %s",
+            attacker_ip,
+            attacker_port,
+            exc,
+        )
+        LOGGER.error("SSH negotiation FAILED - Exception type: %s", type(exc).__name__)
+        import traceback
+
+        LOGGER.error(
+            "SSH negotiation FAILED - Full traceback:\n%s", traceback.format_exc()
+        )
         transport.close()
+        rate_limiter.unregister_connection(attacker_ip)
+        return
+    except Exception as exc:
+        LOGGER.error(
+            "Unexpected error during SSH negotiation with %s:%s - %s",
+            attacker_ip,
+            attacker_port,
+            exc,
+        )
+        import traceback
+
+        LOGGER.error("Unexpected error - Full traceback:\n%s", traceback.format_exc())
+        transport.close()
+        rate_limiter.unregister_connection(attacker_ip)
         return
 
     # Capture SSH fingerprint after successful negotiation
@@ -180,26 +269,37 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     except Exception as e:
         LOGGER.debug("Could not extract SSH fingerprint: %s", e)
 
+    LOGGER.debug(
+        "Waiting for channel from %s:%s (20 second timeout)", attacker_ip, attacker_port
+    )
     chan = transport.accept(20)
     if chan is None:
-        LOGGER.warning("No channel for %s", attacker_ip)
+        LOGGER.warning(
+            "No channel received from %s:%s within 20 seconds",
+            attacker_ip,
+            attacker_port,
+        )
         transport.close()
+        rate_limiter.unregister_connection(attacker_ip)
         return
+    LOGGER.debug("Channel accepted from %s:%s", attacker_ip, attacker_port)
 
     # Capture auth and PTY metadata from server interface
     session_log["auth"] = server.get_auth_summary()
     session_log["pty_info"] = server.pty_info
 
-    # Log credentials for forensics
+    # Log credentials for forensics (configurable for security)
+    security_config = config.security
     if server.successful_username:
-        LOGGER.info(
-            "Attacker %s logged in as '%s' with password '%s'",
-            attacker_ip,
-            server.successful_username,
-            server.successful_password[:20] + "..."
-            if server.successful_password and len(server.successful_password) > 20
-            else server.successful_password,
-        )
+        if security_config.log_passwords or LOGGER.level <= logging.DEBUG:
+            LOGGER.info(
+                "Attacker %s logged in as '%s' with password '%s'",
+                attacker_ip,
+                server.successful_username,
+                server.successful_password[:20] + "..."
+                if server.successful_password and len(server.successful_password) > 20
+                else server.successful_password,
+            )
 
     chan.settimeout(300)
 
@@ -218,8 +318,25 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     # Register this session as live for real-time dashboard
     _update_live_sessions(session_log)
 
+    # Session timeout tracking
+    security_config = config.security
+    max_session_duration = security_config.max_session_duration
+
     try:
         while True:
+            # Check session timeout
+            if max_session_duration > 0:
+                elapsed = time.time() - start_time
+                if elapsed > max_session_duration:
+                    LOGGER.warning(
+                        "Session from %s exceeded max duration (%d seconds), terminating",
+                        attacker_ip,
+                        max_session_duration,
+                    )
+                    chan.send(b"\r\nSession timeout. Connection closed.\r\n")
+                    chan.close()
+                    break
+
             data = chan.recv(1024)
             if not data:
                 break
@@ -327,6 +444,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     except Exception as exc:  # pragma: no cover - defensive
         LOGGER.error("Error in session with %s: %s", attacker_ip, exc)
     finally:
+        # Unregister the connection from rate limiter
+        rate_limiter = get_rate_limiter()
+        rate_limiter.unregister_connection(attacker_ip)
+
         # Record session end time and duration
         end_time = time.time()
         session_log["logout_time"] = datetime.utcnow().isoformat() + "Z"
@@ -405,12 +526,16 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
     try:
         while True:
             client, addr = sock.accept()
+            LOGGER.debug(
+                "=== SOCKET ACCEPT === New TCP connection from %s:%s", addr[0], addr[1]
+            )
             thread = threading.Thread(
                 target=_handle_client,
                 args=(client, addr, host_key),
                 daemon=True,
             )
             thread.start()
+            LOGGER.debug("Started handler thread for %s:%s", addr[0], addr[1])
     except KeyboardInterrupt:
         print("\n" + Fore.YELLOW + "[!] Shutting down MiragePot..." + Style.RESET_ALL)
     finally:
@@ -449,17 +574,27 @@ class HoneypotServer:
         self._running = True
         LOGGER.info("MiragePot listening on %s:%d", self.host, self.port)
 
+        # Start cleanup thread for finished threads
+        cleanup_thread = threading.Thread(target=self._cleanup_threads, daemon=True)
+        cleanup_thread.start()
+
         try:
             while self._running:
                 try:
                     self._socket.settimeout(1.0)  # Allow periodic check of _running
                     client, addr = self._socket.accept()
+                    LOGGER.debug(
+                        "=== SOCKET ACCEPT === New TCP connection from %s:%s",
+                        addr[0],
+                        addr[1],
+                    )
                     thread = threading.Thread(
                         target=_handle_client,
                         args=(client, addr, self._host_key),
                         daemon=True,
                     )
                     thread.start()
+                    LOGGER.debug("Started handler thread for %s:%s", addr[0], addr[1])
                     self._threads.append(thread)
                 except socket.timeout:
                     continue
@@ -467,6 +602,21 @@ class HoneypotServer:
             LOGGER.info("Received interrupt signal")
         finally:
             self.shutdown()
+
+    def _cleanup_threads(self) -> None:
+        """Periodically clean up finished threads to prevent accumulation."""
+        while self._running:
+            time.sleep(30)  # Cleanup every 30 seconds
+            if not self._threads:
+                continue
+
+            # Remove finished threads
+            active_threads = [t for t in self._threads if t.is_alive()]
+            removed = len(self._threads) - len(active_threads)
+            self._threads = active_threads
+
+            if removed > 0:
+                LOGGER.debug("Cleaned up %d finished thread(s)", removed)
 
     def shutdown(self) -> None:
         """Stop the honeypot server gracefully."""
