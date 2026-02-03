@@ -83,11 +83,12 @@ def get_or_create_host_key() -> paramiko.PKey:
         except Exception as exc:  # pragma: no cover - defensive
             LOGGER.error("Failed to load host key, regenerating: %s", exc)
 
-    # Generate and save a new key using Paramiko's helper
-    key = paramiko.RSAKey.generate(2048)
+    # Generate and save a new 4096-bit RSA key for better security
+    key = paramiko.RSAKey.generate(4096)
     # Ensure parent directory exists
     HOST_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
     key.write_private_key_file(str(HOST_KEY_PATH))
+    LOGGER.info("Generated new 4096-bit RSA host key")
     return key
 
 

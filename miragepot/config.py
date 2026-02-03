@@ -154,6 +154,30 @@ class HoneypotConfig:
 
 
 @dataclass
+class SecurityConfig:
+    """Security and rate limiting configuration."""
+
+    max_connections_per_ip: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_MAX_CONNECTIONS_PER_IP", 3)
+    )
+    max_total_connections: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_MAX_TOTAL_CONNECTIONS", 50)
+    )
+    connection_time_window: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_CONNECTION_TIME_WINDOW", 60)
+    )
+    block_duration: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_BLOCK_DURATION", 300)
+    )
+    max_session_duration: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_MAX_SESSION_DURATION", 3600)
+    )
+    log_passwords: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_LOG_PASSWORDS", False)
+    )
+
+
+@dataclass
 class Config:
     """Main configuration container."""
 
@@ -162,6 +186,7 @@ class Config:
     dashboard: DashboardConfig = field(default_factory=DashboardConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     honeypot: HoneypotConfig = field(default_factory=HoneypotConfig)
+    security: SecurityConfig = field(default_factory=SecurityConfig)
 
     # Paths
     project_root: Path = PROJECT_ROOT
@@ -223,3 +248,8 @@ def get_logging_config() -> LoggingConfig:
 def get_honeypot_config() -> HoneypotConfig:
     """Get honeypot system configuration."""
     return get_config().honeypot
+
+
+def get_security_config() -> SecurityConfig:
+    """Get security configuration."""
+    return get_config().security

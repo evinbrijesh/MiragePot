@@ -14,7 +14,8 @@ MiragePot is an intelligent SSH honeypot that simulates a realistic Linux termin
 - **AI-Powered Responses** - Uses local LLM (Ollama) for dynamic command output
 - **Hybrid Engine** - Fast cached responses + AI fallback for unknown commands
 - **Fake Filesystem** - In-memory filesystem with realistic files and structure
-- **Prompt Injection Protection** - Detects and blocks LLM manipulation attempts
+- **Enhanced Security** - Rate limiting, Unicode normalization, 4096-bit RSA keys
+- **Prompt Injection Protection** - Advanced detection with normalization to prevent bypasses
 - **Active Defense** - Threat scoring with configurable tarpit delays
 - **Session Logging** - Detailed JSON logs of all attacker activity
 - **Web Dashboard** - Real-time Streamlit dashboard for monitoring
