@@ -168,6 +168,33 @@ MIRAGEPOT_OS_VERSION=7.9.2009
 MIRAGEPOT_KERNEL_VERSION=3.10.0-1160.el7.x86_64
 ```
 
+### Security & Rate Limiting
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MIRAGEPOT_MAX_CONNECTIONS_PER_IP` | `3` | Maximum concurrent connections per IP |
+| `MIRAGEPOT_MAX_TOTAL_CONNECTIONS` | `50` | Maximum total concurrent connections |
+| `MIRAGEPOT_CONNECTION_TIME_WINDOW` | `60` | Time window for connection tracking (seconds) |
+| `MIRAGEPOT_BLOCK_DURATION` | `300` | Block duration for abusive IPs (seconds) |
+| `MIRAGEPOT_MAX_SESSION_DURATION` | `3600` | Maximum session duration (seconds, 0=unlimited) |
+| `MIRAGEPOT_LOG_PASSWORDS` | `false` | Log passwords to console (true/false) |
+
+**Examples:**
+
+```bash
+# Stricter rate limiting
+MIRAGEPOT_MAX_CONNECTIONS_PER_IP=1
+MIRAGEPOT_MAX_TOTAL_CONNECTIONS=20
+MIRAGEPOT_BLOCK_DURATION=600
+
+# Relaxed settings for testing
+MIRAGEPOT_MAX_CONNECTIONS_PER_IP=10
+MIRAGEPOT_MAX_SESSION_DURATION=7200
+
+# Enable password logging (use with caution)
+MIRAGEPOT_LOG_PASSWORDS=true
+```
+
 ## Sample Configurations
 
 ### Development Setup

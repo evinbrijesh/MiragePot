@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, cast
 
@@ -2092,14 +2093,22 @@ def _is_prompt_injection(command: str) -> bool:
     - Character splitting attempts
     - Unicode homoglyph substitutions
     """
-    # Check standard patterns
+    # Normalize Unicode to prevent homoglyph attacks
+    # NFKC normalization converts visually similar characters to their canonical forms
+    normalized = unicodedata.normalize("NFKC", command)
+    
+    # Also normalize whitespace to prevent obfuscation via tabs, zero-width spaces, etc.
+    # Replace all whitespace variations with single space
+    normalized = re.sub(r'\s+', ' ', normalized)
+    
+    # Check standard patterns on normalized input
     for pattern in INJECTION_REGEX:
-        if pattern.search(command):
+        if pattern.search(normalized):
             return True
 
     # Check encoded/obfuscated patterns
     for pattern in ENCODED_INJECTION_REGEX:
-        if pattern.search(command):
+        if pattern.search(normalized):
             return True
 
     # Check for suspicious characteristics
