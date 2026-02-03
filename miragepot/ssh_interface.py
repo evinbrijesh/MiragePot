@@ -276,6 +276,13 @@ def create_listening_socket(host: str, port: int) -> socket.socket:
     """
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
+    # Enable TCP keepalive for better connection stability
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    # Disable Nagle's algorithm for lower latency (better for interactive SSH)
+    sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
     sock.bind((host, port))
     sock.listen(100)
     return sock
