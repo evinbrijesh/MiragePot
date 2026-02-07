@@ -116,7 +116,7 @@ Install [Docker Desktop with WSL2](https://docs.docker.com/desktop/install/windo
 ### 3. Clone Repository
 
 ```bash
-git clone https://github.com/yourusername/MiragePot.git
+git clone https://github.com/evinbrijesh/MiragePot.git
 cd MiragePot
 ```
 
