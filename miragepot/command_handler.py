@@ -74,6 +74,8 @@ from .honeytokens import (
     generate_aws_credentials_content,
     generate_session_id,
 )
+from .metrics import get_metrics_collector
+from .defense_module import calculate_threat_score
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CACHE_PATH = DATA_DIR / "cache.json"
@@ -2096,11 +2098,11 @@ def _is_prompt_injection(command: str) -> bool:
     # Normalize Unicode to prevent homoglyph attacks
     # NFKC normalization converts visually similar characters to their canonical forms
     normalized = unicodedata.normalize("NFKC", command)
-    
+
     # Also normalize whitespace to prevent obfuscation via tabs, zero-width spaces, etc.
     # Replace all whitespace variations with single space
-    normalized = re.sub(r'\s+', ' ', normalized)
-    
+    normalized = re.sub(r"\s+", " ", normalized)
+
     # Check standard patterns on normalized input
     for pattern in INJECTION_REGEX:
         if pattern.search(normalized):
@@ -2383,10 +2385,20 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
     - Falls back to AI for everything else.
     - Analyzes command for TTP indicators.
     - Tracks honeytoken access and exfiltration attempts.
+    - Records Prometheus metrics.
     """
     cmd = command.strip()
     if not cmd:
         return ""  # just re-prompt
+
+    # Get metrics collector
+    metrics = get_metrics_collector()
+
+    # Calculate threat score for metrics
+    threat_score_value = calculate_threat_score(cmd)
+
+    # Record command metrics
+    metrics.record_command(cmd, threat_score_value)
 
     # Analyze command for TTP indicators
     ttp_state_raw = session_state.get("ttp_state")
@@ -2395,7 +2407,13 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
         session_state["ttp_state"] = ttp_state
     else:
         ttp_state = cast(SessionTTPState, ttp_state_raw)
-    analyze_command(cmd, ttp_state)
+
+    # Analyze and record TTP detections
+    ttp_indicators = analyze_command(cmd, ttp_state)
+
+    # Record TTP detections in metrics
+    for indicator in ttp_indicators:
+        metrics.record_ttp_detection(indicator.stage.value, indicator.technique_name)
 
     # Check for honeytoken access
     honeytokens_raw = session_state.get("honeytokens")
@@ -2409,11 +2427,15 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
         accessed_tokens = check_command_for_token_access(cmd, honeytokens)
         for token_id in accessed_tokens:
             record_token_access(honeytokens, token_id, cmd, "read")
+            # Record honeytoken access in metrics
+            metrics.record_honeytoken_triggered(token_id)
 
         # Check for exfiltration attempts
         is_exfil, destination = check_for_exfiltration(cmd, honeytokens)
         if is_exfil and accessed_tokens:
             record_exfiltration_attempt(honeytokens, accessed_tokens, cmd, destination)
+            # Record exfiltration attempt in metrics
+            metrics.record_honeytoken_triggered("exfiltration_attempt")
 
     if cmd in ("exit", "logout"):
         # Signal upstream that session should close by returning
@@ -2444,7 +2466,9 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
     # Next, try the cache JSON.
     cached = CACHE.get(cmd)
     if cached is not None:
+        metrics.record_cache_hit()
         return cached
 
     # Finally, fall back to the AI model.
+    metrics.record_cache_miss()
     return query_llm(cmd, session_state)

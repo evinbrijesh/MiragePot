@@ -1,0 +1,123 @@
+services:
+  # Ollama service with Phi-3 model
+  ollama:
+    image: ollama/ollama:latest
+    container_name: miragepot-ollama
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - miragepot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # MiragePot SSH Honeypot
+  miragepot:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: miragepot-honeypot
+    restart: unless-stopped
+    ports:
+      - "2222:2222"   # SSH honeypot (change to 22:2222 for standard SSH port)
+      - "8501:8501"   # Streamlit dashboard
+      - "9090:9090"   # Metrics endpoint
+    volumes:
+      - ../data/logs:/app/data/logs
+      - ../data/cache.json:/app/data/cache.json
+      - ../data/system_prompt.txt:/app/data/system_prompt.txt
+    env_file:
+      - ../.env.docker
+    environment:
+      - MIRAGEPOT_SSH_HOST=0.0.0.0
+      - MIRAGEPOT_SSH_PORT=2222
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    networks:
+      - miragepot-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2222)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Prometheus metrics collection
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: miragepot-prometheus
+    restart: unless-stopped
+    ports:
+      - "9091:9090"   # Prometheus UI
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+      - '--web.console.libraries=/usr/share/prometheus/console_libraries'
+      - '--web.console.templates=/usr/share/prometheus/consoles'
+    networks:
+      - miragepot-net
+    depends_on:
+      - miragepot
+
+  # Alertmanager for notifications
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: miragepot-alertmanager
+    restart: unless-stopped
+    ports:
+      - "9093:9093"   # Alertmanager UI
+    volumes:
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - alertmanager-data:/alertmanager
+    command:
+      - '--config.file=/etc/alertmanager/alertmanager.yml'
+      - '--storage.path=/alertmanager'
+    networks:
+      - miragepot-net
+    depends_on:
+      - prometheus
+
+  # Grafana dashboards
+  grafana:
+    image: grafana/grafana:latest
+    container_name: miragepot-grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"   # Grafana UI
+    volumes:
+      - ../grafana/provisioning:/etc/grafana/provisioning
+      - ../grafana/dashboards:/var/lib/grafana/dashboards
+      - grafana-data:/var/lib/grafana
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_SERVER_ROOT_URL=http://localhost:3000
+      - GF_INSTALL_PLUGINS=grafana-worldmap-panel,grafana-piechart-panel
+    networks:
+      - miragepot-net
+    depends_on:
+      - prometheus
+
+networks:
+  miragepot-net:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    driver: local
+  prometheus-data:
+    driver: local
+  alertmanager-data:
+    driver: local
+  grafana-data:
+    driver: local
