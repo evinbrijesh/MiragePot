@@ -23,35 +23,43 @@ MiragePot is an intelligent SSH honeypot that simulates a realistic Linux termin
 
 ## Quick Start
 
-### Option 1: Docker (Recommended)
+### Docker Deployment (Recommended for Demos)
 
-The fastest way to get started - everything runs in containers including the LLM:
+Deploy the complete monitoring stack in one command:
 
 ```bash
-# Clone and deploy
+# Clone the repository
 git clone https://github.com/evinbrijesh/MiragePot.git
 cd MiragePot
-./scripts/deploy.sh
+
+# Deploy full stack (5 containers: Honeypot + AI + Monitoring)
+cp .env.docker.example .env.docker
+cd docker/
+docker compose up -d
+
+# Download AI model (~2GB, takes 2-5 minutes)
+docker exec miragepot-ollama ollama pull phi3
 ```
 
-Choose your deployment:
-- **Simple Stack** (2 containers): Honeypot + Ollama LLM
-- **Full Stack** (5 containers): + Prometheus + Grafana + Alertmanager
-
-Test it:
+**Access your honeypot:**
 ```bash
-ssh root@localhost -p 2222  # Any password works
+ssh root@localhost -p 2222  # Use ANY password
 ```
 
-Access dashboards:
-- Streamlit: http://localhost:8501
-- Grafana: http://localhost:3000 (full stack)
+**View dashboards:**
+- **Streamlit**: http://localhost:8501 (session logs, real-time activity)
+- **Grafana**: http://localhost:3000 (metrics, TTPs, performance) - login: admin/admin
+- **Prometheus**: http://localhost:9091 (raw metrics)
 
-See [Docker Deployment Guide](docs/DOCKER_DEPLOYMENT.md) for details.
+**Offline deployment** (for demos without internet):
+See [Offline Deployment Guide](docs/OFFLINE_DEPLOYMENT.md) - includes script to create a portable bundle.
 
-### Option 2: Local Installation
+**Demo presentation:**
+See [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - complete script for technical presentations.
 
-For development or customization:
+### Local Installation (For Development)
+
+For customization or contributing to the project:
 
 ```bash
 # Clone the repository
@@ -82,18 +90,36 @@ Open the dashboard at http://localhost:8501
 
 ## Deployment Options
 
-| Feature | Simple Stack | Full Stack | Local |
-|---------|--------------|------------|-------|
-| SSH Honeypot | Docker | Docker | Python |
-| AI Responses | Ollama (Docker) | Ollama (Docker) | Ollama (local) |
-| Streamlit Dashboard | Docker | Docker | Python |
-| Prometheus Metrics | Endpoint only | Full UI | Endpoint only |
-| Grafana Dashboards | - | 3 pre-built | - |
-| Alertmanager | - | Included | - |
-| Setup Time | ~5 min | ~5 min | ~10 min |
-| RAM Required | ~3GB | ~5GB | ~4GB |
+**Recommended for Demos/Production**: Use **Full Stack** deployment to showcase complete capabilities.
 
-**Recommended**: Use Docker for the easiest setup and full monitoring capabilities.
+| Feature | Full Stack (Recommended) | Simple Stack | Local Dev |
+|---------|--------------------------|--------------|-----------|
+| **SSH Honeypot** | ✅ Docker | ✅ Docker | Python |
+| **AI Responses** | ✅ Ollama+phi3 | ✅ Ollama+phi3 | Ollama (manual) |
+| **Streamlit Dashboard** | ✅ Real-time | ✅ Real-time | Manual start |
+| **Prometheus Metrics** | ✅ Full UI + Storage | Endpoint only | Endpoint only |
+| **Grafana Dashboards** | ✅ 3 pre-built | ❌ | ❌ |
+| **Alertmanager** | ✅ Alert system | ❌ | ❌ |
+| **MITRE ATT&CK Mapping** | ✅ Visualized | ✅ Logged | ✅ Logged |
+| **Setup Time** | ~5 min | ~3 min | ~10 min |
+| **RAM Required** | ~5GB | ~3GB | ~4GB |
+| **Best For** | **Demos, Production** | Quick testing | Development |
+
+### Why Full Stack?
+
+For CS demos and production use, the Full Stack deployment provides:
+- **Complete visibility** - Grafana dashboards for visual presentations
+- **Professional appearance** - Shows production-ready architecture
+- **Threat analysis** - Real-time MITRE ATT&CK technique visualization
+- **Scalability demonstration** - Shows how to monitor at scale
+- **One command deployment** - Just as easy as simple stack
+
+### Simple Stack Use Case
+
+Use simple stack only for:
+- Quick local testing
+- Resource-constrained environments
+- Learning the basics before full deployment
 
 ## Architecture
 
@@ -153,11 +179,20 @@ miragepot --help
 
 ## Documentation
 
-- [Installation Guide](docs/INSTALL.md)
-- [Configuration Reference](docs/CONFIGURATION.md)
-- [Usage Guide](docs/USAGE.md)
-- [Architecture](docs/architecture.md)
-- [Contributing](CONTRIBUTING.md)
+### Getting Started
+- [Quick Start Guide](docs/QUICK_START.md) - Get running in 5 minutes
+- [Docker Deployment](docs/DOCKER_DEPLOYMENT.md) - Complete deployment reference
+- [Offline Deployment](docs/OFFLINE_DEPLOYMENT.md) - Deploy without internet (for demos)
+
+### Using MiragePot
+- [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - Present to technical audiences
+- [Monitoring Guide](docs/MONITORING.md) - Grafana dashboards and metrics
+- [Configuration Reference](docs/CONFIGURATION.md) - All settings explained
+
+### Development
+- [Architecture](docs/architecture.md) - System design and components
+- [Contributing](CONTRIBUTING.md) - How to contribute
+- [Installation Guide](docs/INSTALL.md) - Local development setup
 
 ## How It Works
 
