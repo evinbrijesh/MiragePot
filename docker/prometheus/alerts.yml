@@ -1,0 +1,218 @@
+# MiragePot Alert Rules for Prometheus
+
+groups:
+  # =========================================================================
+  # Critical Security Threats
+  # =========================================================================
+  - name: critical_threats
+    interval: 15s
+    rules:
+      - alert: HighThreatCommand
+        expr: increase(miragepot_commands_total{threat_level="high"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: security
+        annotations:
+          summary: "Critical threat command detected"
+          description: "{{ $value }} high-threat commands detected in the last 5 minutes"
+          
+      - alert: MalwareDownloadAttempt
+        expr: increase(miragepot_high_threat_commands_total{command_pattern=~"wget|curl"}[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: malware
+        annotations:
+          summary: "Malware download attempt detected"
+          description: "Attacker attempting to download malware using {{ $labels.command_pattern }}"
+
+  # =========================================================================
+  # Attack Patterns
+  # =========================================================================
+  - name: attack_patterns
+    interval: 30s
+    rules:
+      - alert: BruteForceAttack
+        expr: rate(miragepot_connections_total[2m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          category: brute_force
+        annotations:
+          summary: "Potential SSH brute force attack"
+          description: "High connection rate: {{ $value | humanize }} connections/sec"
+          
+      - alert: MassScanning
+        expr: rate(miragepot_connections_total{result="rejected_ratelimit"}[5m]) > 5
+        for: 3m
+        labels:
+          severity: warning
+          category: scanning
+        annotations:
+          summary: "Mass scanning detected"
+          description: "Multiple IPs hitting rate limits: {{ $value | humanize }}/sec"
+          
+      - alert: NewAttackerCountry
+        expr: delta(miragepot_attacker_countries[10m]) > 3
+        for: 0s
+        labels:
+          severity: info
+          category: intelligence
+        annotations:
+          summary: "Attackers from new countries detected"
+          description: "{{ $value }} new countries in last 10 minutes"
+
+  # =========================================================================
+  # Session Anomalies
+  # =========================================================================
+  - name: session_anomalies
+    interval: 1m
+    rules:
+      - alert: LongRunningSessions
+        expr: miragepot_sessions_active > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: anomaly
+        annotations:
+          summary: "Unusually high number of active sessions"
+          description: "{{ $value }} sessions active for over 5 minutes"
+          
+      - alert: HighCommandRate
+        expr: rate(miragepot_commands_total[1m]) > 20
+        for: 3m
+        labels:
+          severity: warning
+          category: anomaly
+        annotations:
+          summary: "Extremely high command execution rate"
+          description: "{{ $value | humanize }} commands/sec - possible automated attack"
+
+  # =========================================================================
+  # TTP/MITRE ATT&CK
+  # =========================================================================
+  - name: ttp_detection
+    interval: 30s
+    rules:
+      - alert: PrivilegeEscalationAttempt
+        expr: increase(miragepot_ttp_detections_total{attack_stage="privilege_escalation"}[10m]) > 0
+        for: 0s
+        labels:
+          severity: high
+          category: ttp
+          mitre_tactic: "TA0004"
+        annotations:
+          summary: "Privilege escalation attempt detected"
+          description: "MITRE ATT&CK technique: {{ $labels.technique }}"
+          
+      - alert: PersistenceMechanism
+        expr: increase(miragepot_ttp_detections_total{attack_stage="persistence"}[10m]) > 0
+        for: 0s
+        labels:
+          severity: high
+          category: ttp
+          mitre_tactic: "TA0003"
+        annotations:
+          summary: "Persistence mechanism detected"
+          description: "Attacker attempting to maintain access: {{ $labels.technique }}"
+          
+      - alert: LateralMovementAttempt
+        expr: increase(miragepot_ttp_detections_total{attack_stage="lateral_movement"}[10m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: ttp
+          mitre_tactic: "TA0008"
+        annotations:
+          summary: "Lateral movement attempt detected"
+          description: "Advanced attacker behavior: {{ $labels.technique }}"
+          
+      - alert: ExfiltrationAttempt
+        expr: increase(miragepot_ttp_detections_total{attack_stage="exfiltration"}[10m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: ttp
+          mitre_tactic: "TA0010"
+        annotations:
+          summary: "Data exfiltration attempt detected"
+          description: "Attacker attempting data theft: {{ $labels.technique }}"
+
+  # =========================================================================
+  # Honeytokens & Deception
+  # =========================================================================
+  - name: honeytokens
+    interval: 15s
+    rules:
+      - alert: HoneytokenTriggered
+        expr: increase(miragepot_honeytokens_triggered_total[5m]) > 0
+        for: 0s
+        labels:
+          severity: critical
+          category: deception
+        annotations:
+          summary: "🍯 Honeytoken accessed!"
+          description: "Type: {{ $labels.token_type }} - Attacker took the bait!"
+
+  # =========================================================================
+  # System Health
+  # =========================================================================
+  - name: system_health
+    interval: 1m
+    rules:
+      - alert: HighConnectionRejectionRate
+        expr: rate(miragepot_connections_total{result="failed"}[5m]) > rate(miragepot_connections_total{result="success"}[5m])
+        for: 5m
+        labels:
+          severity: warning
+          category: health
+        annotations:
+          summary: "High connection failure rate"
+          description: "More connections failing than succeeding - check logs"
+          
+      - alert: LLMHighLatency
+        expr: histogram_quantile(0.95, rate(miragepot_llm_latency_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          category: performance
+        annotations:
+          summary: "LLM response time degraded"
+          description: "95th percentile latency: {{ $value | humanize }}s"
+          
+      - alert: LLMHighErrorRate
+        expr: rate(miragepot_llm_requests_total{result!="success"}[5m]) > 0.1
+        for: 3m
+        labels:
+          severity: warning
+          category: llm
+        annotations:
+          summary: "High LLM error rate"
+          description: "{{ $value | humanizePercentage }} of LLM requests failing"
+
+  # =========================================================================
+  # Intelligence & Analytics
+  # =========================================================================
+  - name: intelligence
+    interval: 5m
+    rules:
+      - alert: UniqueIPSpike
+        expr: delta(miragepot_unique_attacker_ips[1h]) > 50
+        for: 0s
+        labels:
+          severity: info
+          category: intelligence
+        annotations:
+          summary: "Large spike in unique attacker IPs"
+          description: "{{ $value }} new unique IPs in last hour - possible coordinated attack"
+          
+      - alert: LowCacheHitRate
+        expr: rate(miragepot_llm_cache_hits_total[10m]) / (rate(miragepot_llm_cache_hits_total[10m]) + rate(miragepot_llm_cache_misses_total[10m])) < 0.5
+        for: 10m
+        labels:
+          severity: info
+          category: performance
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Only {{ $value | humanizePercentage }} cache hits - attackers using novel commands"

@@ -3,6 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+[![Docker](https://img.shields.io/badge/docker-ready-blue.svg)](https://www.docker.com/)
 
 **AI-Driven Adaptive SSH Honeypot**
 
@@ -22,12 +23,35 @@ MiragePot is an intelligent SSH honeypot that simulates a realistic Linux termin
 
 ## Quick Start
 
-### Prerequisites
+### Option 1: Docker (Recommended)
 
-- Python 3.10+
-- [Ollama](https://ollama.ai) with phi3 model
+The fastest way to get started - everything runs in containers including the LLM:
 
-### Installation
+```bash
+# Clone and deploy
+git clone https://github.com/evinbrijesh/MiragePot.git
+cd MiragePot
+./scripts/deploy.sh
+```
+
+Choose your deployment:
+- **Simple Stack** (2 containers): Honeypot + Ollama LLM
+- **Full Stack** (5 containers): + Prometheus + Grafana + Alertmanager
+
+Test it:
+```bash
+ssh root@localhost -p 2222  # Any password works
+```
+
+Access dashboards:
+- Streamlit: http://localhost:8501
+- Grafana: http://localhost:3000 (full stack)
+
+See [Docker Deployment Guide](docs/DOCKER_DEPLOYMENT.md) for details.
+
+### Option 2: Local Installation
+
+For development or customization:
 
 ```bash
 # Clone the repository
@@ -41,30 +65,35 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 # Install MiragePot
 pip install -e .
 
-# Setup Ollama
+# Setup Ollama (required for AI responses)
 ollama pull phi3
 ollama serve  # Keep running in background
-```
 
-### Running
-
-```bash
-# Start honeypot and dashboard
+# Start honeypot
 python run.py
-
-# Or use the CLI
-miragepot --dashboard
 ```
 
-### Testing
-
-Connect via SSH (any password works):
-
+Test it:
 ```bash
-ssh root@127.0.0.1 -p 2222
+ssh root@127.0.0.1 -p 2222  # Any password works
 ```
 
 Open the dashboard at http://localhost:8501
+
+## Deployment Options
+
+| Feature | Simple Stack | Full Stack | Local |
+|---------|--------------|------------|-------|
+| SSH Honeypot | Docker | Docker | Python |
+| AI Responses | Ollama (Docker) | Ollama (Docker) | Ollama (local) |
+| Streamlit Dashboard | Docker | Docker | Python |
+| Prometheus Metrics | Endpoint only | Full UI | Endpoint only |
+| Grafana Dashboards | - | 3 pre-built | - |
+| Alertmanager | - | Included | - |
+| Setup Time | ~5 min | ~5 min | ~10 min |
+| RAM Required | ~3GB | ~5GB | ~4GB |
+
+**Recommended**: Use Docker for the easiest setup and full monitoring capabilities.
 
 ## Architecture
 

@@ -1,0 +1,68 @@
+# MiragePot Simple Deployment
+# Lightweight 2-container stack: Honeypot + Ollama
+# Perfect for quick testing, demos, and learning
+#
+# Usage:
+#   docker compose -f docker-compose-simple.yml up -d
+#
+# Access:
+#   - SSH Honeypot: ssh root@localhost -p 2222 (any password)
+#   - Streamlit Dashboard: http://localhost:8501
+#   - Metrics Endpoint: http://localhost:9090/metrics
+
+services:
+  # Ollama service with Phi-3 model
+  ollama:
+    image: ollama/ollama:latest
+    container_name: miragepot-ollama-simple
+    restart: unless-stopped
+    volumes:
+      - ollama-data:/root/.ollama
+    networks:
+      - miragepot-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # MiragePot SSH Honeypot with integrated dashboard
+  miragepot:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: miragepot-honeypot-simple
+    restart: unless-stopped
+    ports:
+      - "2222:2222"   # SSH honeypot (change to 22:2222 for standard SSH port)
+      - "8501:8501"   # Streamlit dashboard (localhost only recommended)
+      - "9090:9090"   # Prometheus metrics endpoint
+    volumes:
+      - ./data/logs:/app/data/logs
+      - ./data/cache.json:/app/data/cache.json
+      - ./data/system_prompt.txt:/app/data/system_prompt.txt
+    env_file:
+      - .env.docker
+    environment:
+      - MIRAGEPOT_SSH_HOST=0.0.0.0
+      - MIRAGEPOT_SSH_PORT=2222
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+    networks:
+      - miragepot-net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2222)); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  miragepot-net:
+    driver: bridge
+
+volumes:
+  ollama-data:
+    driver: local

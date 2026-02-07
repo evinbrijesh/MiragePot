@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .response_validator import validate_response, sanitize_for_terminal
+from .metrics import get_metrics_collector
 
 try:
     import ollama
@@ -86,13 +87,33 @@ def check_ollama_connection() -> bool:
     try:
         # Try to list models to verify connection
         models = ollama.list()
-        model_names = [
-            m.get("name", "").split(":")[0] for m in models.get("models", [])
-        ]
+        # Handle both old dict-style and new typed response from ollama library
+        models_list = getattr(models, "models", None) or models.get("models", [])
+        model_names = []
+        for m in models_list:
+            # Support both attribute access (.model) and dict access (.get("name"))
+            name = (
+                getattr(m, "model", None) or m.get("name", "")
+                if hasattr(m, "get")
+                else ""
+            )
+            if name:
+                model_names.append(name.split(":")[0])
 
-        if LLM_MODEL not in model_names and f"{LLM_MODEL}:latest" not in [
-            m.get("name", "") for m in models.get("models", [])
-        ]:
+        full_model_names = []
+        for m in models_list:
+            name = (
+                getattr(m, "model", None) or m.get("name", "")
+                if hasattr(m, "get")
+                else ""
+            )
+            if name:
+                full_model_names.append(name)
+
+        if (
+            LLM_MODEL not in model_names
+            and f"{LLM_MODEL}:latest" not in full_model_names
+        ):
             LOGGER.warning(
                 "Model '%s' not found in Ollama. Available models: %s. "
                 "Run 'ollama pull %s' to download it.",
@@ -350,14 +371,18 @@ def query_llm(
     Returns:
         Terminal-like output string
     """
+    metrics = get_metrics_collector()
+
     # Check if Ollama is available
     if not check_ollama_connection():
         LOGGER.warning("Ollama unavailable, using fallback response for: %s", command)
+        metrics.record_cache_miss()  # Not really a cache miss but tracks fallback usage
         return _generate_fallback_response(command)
 
     system_prompt = _load_system_prompt()
     user_prompt = build_user_prompt(command, session_state)
 
+    start_time = time.time()
     try:
         response = ollama.chat(
             model=LLM_MODEL,
@@ -370,7 +395,11 @@ def query_llm(
                 "num_predict": 512,  # Limit response length
             },
         )
+        latency = time.time() - start_time
         content = response.get("message", {}).get("content", "")
+
+        # Record successful LLM request
+        metrics.record_llm_request(LLM_MODEL, "success", latency)
 
         # Clean up the response using basic cleaning first
         content = _clean_llm_response(content, command)
@@ -404,7 +433,12 @@ def query_llm(
         return content
 
     except Exception as exc:
+        latency = time.time() - start_time
         LOGGER.error("Error querying LLM for command '%s': %s", command, exc)
+
+        # Record failed LLM request
+        metrics.record_llm_request(LLM_MODEL, "error", latency)
+
         # Mark connection as failed so we don't keep retrying
         global _ollama_verified
         _ollama_verified = False
@@ -565,7 +599,18 @@ def verify_ollama_setup() -> tuple[bool, str]:
 
     try:
         models = ollama.list()
-        model_names = [m.get("name", "") for m in models.get("models", [])]
+        # Handle both old dict-style and new typed response from ollama library
+        models_list = getattr(models, "models", None) or models.get("models", [])
+        model_names = []
+        for m in models_list:
+            # Support both attribute access (.model) and dict access (.get("name"))
+            name = (
+                getattr(m, "model", None) or m.get("name", "")
+                if hasattr(m, "get")
+                else ""
+            )
+            if name:
+                model_names.append(name)
 
         # Check for our model (with or without :latest suffix)
         model_found = any(

@@ -35,6 +35,7 @@ from .config import get_config
 from .ttp_detector import get_attack_summary
 from .honeytokens import get_honeytokens_summary
 from .rate_limiter import get_rate_limiter
+from .metrics import get_metrics_collector, start_metrics_server
 
 # Initialize color output for local console
 colorama_init(autoreset=True)
@@ -159,12 +160,16 @@ def _save_session_log(session_log: Dict[str, Any]) -> None:
 
 def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None:
     attacker_ip, attacker_port = addr[0], addr[1]
+    metrics = get_metrics_collector()
 
     LOGGER.debug(
         "=== _handle_client() ENTRY === Connection from %s:%s",
         attacker_ip,
         attacker_port,
     )
+
+    # Track active connection
+    metrics.increment_active_connections()
 
     try:
         # Configure client socket for better compatibility
@@ -184,11 +189,17 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         LOGGER.warning(
             "Connection from %s:%s rejected: %s", attacker_ip, attacker_port, reason
         )
+        metrics.record_connection_attempt("rejected_ratelimit")
+        metrics.decrement_active_connections()
         try:
             client.close()
         except Exception:
             pass
         return
+
+    # Record successful connection
+    metrics.record_connection_attempt("success")
+    metrics.record_attacker_ip(attacker_ip)
 
     # Register the connection
     rate_limiter.register_connection(attacker_ip)
@@ -240,6 +251,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         LOGGER.error(
             "SSH negotiation FAILED - Full traceback:\n%s", traceback.format_exc()
         )
+        metrics.record_connection_attempt("failed")
+        metrics.decrement_active_connections()
         transport.close()
         rate_limiter.unregister_connection(attacker_ip)
         return
@@ -253,6 +266,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         import traceback
 
         LOGGER.error("Unexpected error - Full traceback:\n%s", traceback.format_exc())
+        metrics.record_connection_attempt("failed")
+        metrics.decrement_active_connections()
         transport.close()
         rate_limiter.unregister_connection(attacker_ip)
         return
@@ -279,6 +294,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
             attacker_ip,
             attacker_port,
         )
+        metrics.decrement_active_connections()
         transport.close()
         rate_limiter.unregister_connection(attacker_ip)
         return
@@ -287,6 +303,15 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     # Capture auth and PTY metadata from server interface
     session_log["auth"] = server.get_auth_summary()
     session_log["pty_info"] = server.pty_info
+
+    # Record authentication metrics
+    if server.successful_username:
+        metrics.record_auth_attempt(
+            server.successful_username, server.successful_password or ""
+        )
+
+    # Record session start
+    metrics.record_session_start()
 
     # Log credentials for forensics (configurable for security)
     security_config = config.security
@@ -453,6 +478,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         session_log["logout_time"] = datetime.utcnow().isoformat() + "Z"
         session_log["duration_seconds"] = round(end_time - start_time, 2)
 
+        # Record metrics for session end
+        metrics.record_session_end(session_log["duration_seconds"])
+        metrics.decrement_active_connections()
+
         # Copy download attempts from session state to session log
         session_log["download_attempts"] = session_state.get("download_attempts", [])
 
@@ -502,6 +531,20 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
 def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
     """Start the MiragePot SSH honeypot server."""
     host_key = get_or_create_host_key()
+
+    # Start Prometheus metrics server
+    metrics_port = 9090
+    try:
+        start_metrics_server(port=metrics_port, host="0.0.0.0")
+        print(
+            Fore.GREEN
+            + f"[+] Prometheus metrics available at http://0.0.0.0:{metrics_port}/metrics"
+            + Style.RESET_ALL
+        )
+    except Exception as e:
+        print(
+            Fore.YELLOW + f"[!] Failed to start metrics server: {e}" + Style.RESET_ALL
+        )
 
     # Check Ollama setup and warn if not ready
     ollama_ok, ollama_msg = verify_ollama_setup()
@@ -565,6 +608,17 @@ class HoneypotServer:
 
     def run(self) -> None:
         """Start the honeypot server and block until stopped."""
+        # Start Prometheus metrics server
+        metrics_port = 9090
+        try:
+            start_metrics_server(port=metrics_port, host="0.0.0.0")
+            LOGGER.info(
+                "Prometheus metrics available at http://0.0.0.0:%d/metrics",
+                metrics_port,
+            )
+        except Exception as e:
+            LOGGER.warning("Failed to start metrics server: %s", e)
+
         try:
             self._socket = create_listening_socket(self.host, self.port)
         except OSError as exc:

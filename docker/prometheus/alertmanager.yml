@@ -1,0 +1,113 @@
+# Alertmanager configuration for MiragePot
+# This is a minimal config for portfolio/demo purposes.
+# For production use, add Slack/Discord/Email receivers.
+
+global:
+  # Resolve timeout - how long to wait before marking alert as resolved
+  resolve_timeout: 5m
+
+# Routing configuration
+route:
+  # Default receiver for all alerts
+  receiver: 'default'
+  
+  # Group alerts by these labels
+  group_by: ['alertname', 'cluster', 'severity']
+  
+  # Wait time before sending initial notification
+  group_wait: 10s
+  
+  # Wait time before sending batch of new alerts
+  group_interval: 30s
+  
+  # Minimum wait time before re-sending alert
+  repeat_interval: 4h
+  
+  # Route alerts to specific receivers based on labels
+  routes:
+    # Critical security threats
+    - match:
+        severity: critical
+      receiver: 'default'
+      group_wait: 5s
+      repeat_interval: 30m
+      
+    # High severity
+    - match:
+        severity: high
+      receiver: 'default'
+      group_wait: 10s
+      repeat_interval: 1h
+      
+    # Warnings
+    - match:
+        severity: warning
+      receiver: 'default'
+      repeat_interval: 2h
+      
+    # Honeytokens -> Always notify immediately
+    - match:
+        category: deception
+      receiver: 'default'
+      group_wait: 0s
+      repeat_interval: 15m
+
+# Alert inhibition rules (suppress alerts when others are firing)
+inhibit_rules:
+  # Suppress warning if critical is already firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['alertname', 'cluster']
+    
+  # Suppress high if critical is firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'high'
+    equal: ['alertname', 'cluster']
+
+# Receiver definitions
+receivers:
+  # Default receiver - logs only (no external services required)
+  # Alerts will be visible in Alertmanager UI at http://localhost:9093
+  - name: 'default'
+    # No configs = alerts are stored/visible in Alertmanager UI only
+    # This is ideal for demo/portfolio purposes
+
+# =============================================================================
+# PRODUCTION CONFIGURATION EXAMPLES
+# =============================================================================
+# To enable external notifications, uncomment and configure the sections below:
+#
+# --- SLACK ---
+# Add to a receiver:
+#   slack_configs:
+#     - api_url: 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL'
+#       channel: '#security-alerts'
+#       username: 'MiragePot'
+#       icon_emoji: ':honeybee:'
+#       title: '{{ .GroupLabels.alertname }}'
+#       text: '{{ .CommonAnnotations.summary }}'
+#       send_resolved: true
+#
+# --- DISCORD ---
+# Add to a receiver:
+#   webhook_configs:
+#     - url: 'https://discord.com/api/webhooks/YOUR/WEBHOOK/URL'
+#       send_resolved: true
+#
+# --- EMAIL ---
+# Add to global section:
+#   smtp_from: 'alerts@example.com'
+#   smtp_smarthost: 'smtp.example.com:587'
+#   smtp_auth_username: 'user'
+#   smtp_auth_password: 'password'
+#   smtp_require_tls: true
+#
+# Add to a receiver:
+#   email_configs:
+#     - to: 'security-team@example.com'
+#       send_resolved: true
+# =============================================================================

@@ -1,0 +1,38 @@
+# Prometheus configuration for MiragePot monitoring
+
+global:
+  scrape_interval: 15s      # Scrape metrics every 15 seconds
+  evaluation_interval: 15s  # Evaluate alert rules every 15 seconds
+  scrape_timeout: 10s
+  
+  external_labels:
+    cluster: 'miragepot'
+    environment: 'production'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
+# Load alert rules
+rule_files:
+  - 'alerts.yml'
+
+# Scrape configurations
+scrape_configs:
+  # MiragePot honeypot metrics
+  - job_name: 'miragepot'
+    static_configs:
+      - targets:
+          - 'miragepot:9090'
+    scrape_interval: 15s
+    metrics_path: '/metrics'
+    
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets:
+          - 'localhost:9090'
+    scrape_interval: 30s
