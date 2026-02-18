@@ -6,14 +6,18 @@ services:
     restart: unless-stopped
     volumes:
       - ollama-data:/root/.ollama
+      - ./entrypoint-ollama.sh:/entrypoint-ollama.sh:ro
+    environment:
+      - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3}
+    entrypoint: ["/bin/bash", "/entrypoint-ollama.sh"]
     networks:
       - miragepot-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 360s
 
   # MiragePot SSH Honeypot
   miragepot:
@@ -37,7 +41,8 @@ services:
       - MIRAGEPOT_SSH_PORT=2222
       - OLLAMA_HOST=http://ollama:11434
     depends_on:
-      - ollama
+      ollama:
+        condition: service_healthy
     networks:
       - miragepot-net
     healthcheck:

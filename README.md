@@ -32,13 +32,16 @@ Deploy the complete monitoring stack in one command:
 git clone https://github.com/evinbrijesh/MiragePot.git
 cd MiragePot
 
-# Deploy full stack (5 containers: Honeypot + AI + Monitoring)
+# Deploy full stack - AI model downloads automatically on first run
 cp .env.docker.example .env.docker
 cd docker/
 docker compose up -d
 
-# Download AI model (~2GB, takes 2-5 minutes)
-docker exec miragepot-ollama ollama pull phi3
+# First-time setup takes 2-5 minutes while AI model downloads
+# Watch the progress:
+docker compose logs -f miragepot-ollama
+
+# Once you see "✅ AI Engine Ready", you're good to go!
 ```
 
 **Access your honeypot:**
@@ -50,6 +53,26 @@ ssh root@localhost -p 2222  # Use ANY password
 - **Streamlit**: http://localhost:8501 (session logs, real-time activity)
 - **Grafana**: http://localhost:3000 (metrics, TTPs, performance) - login: admin/admin
 - **Prometheus**: http://localhost:9091 (raw metrics)
+
+### First-Time Setup Notes
+
+**⏱️ First Run (2-5 minutes):**
+The first time you start MiragePot, the AI model (~2GB) downloads automatically.
+Watch the progress with `docker compose logs -f miragepot-ollama`.
+Subsequent starts are instant (model is cached).
+
+**✅ Quick Health Check:**
+```bash
+# Check if everything is running
+docker compose ps
+
+# All services should show "healthy" status within 2-5 minutes
+```
+
+**🔧 Common Issues:**
+- **"Waiting for model download"** → Normal on first run, be patient
+- **"Connection refused to Ollama"** → Model still downloading, wait 2-5 min
+- **Download seems stuck** → Check internet connection, try `docker compose restart ollama`
 
 **Offline deployment** (for demos without internet):
 See [Offline Deployment Guide](docs/OFFLINE_DEPLOYMENT.md) - includes script to create a portable bundle.
