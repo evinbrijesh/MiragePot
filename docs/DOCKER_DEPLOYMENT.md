@@ -254,6 +254,25 @@ cd docker/
 docker compose down
 ```
 
+### Common Commands
+
+```bash
+# Check container status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Stop everything
+docker compose down
+
+# Restart services
+docker compose restart
+
+# View honeypot logs only
+docker logs -f miragepot-honeypot
+```
+
 ---
 
 ## Configuration Reference
@@ -569,68 +588,14 @@ curl http://localhost:11434/api/tags
 
 ## Troubleshooting
 
-### Container Won't Start
+For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
-```bash
-# Check logs
-docker compose logs miragepot
-
-# Common issues:
-# - Port already in use
-# - Missing .env.docker file
-# - Insufficient permissions
-```
-
-### Ollama Model Not Loading
-
-```bash
-# Check Ollama status
-docker exec miragepot-ollama ollama list
-
-# Re-pull model
-docker exec miragepot-ollama ollama pull phi3
-
-# Check Ollama logs
-docker logs miragepot-ollama
-```
-
-### High Memory Usage
-
-```bash
-# Check container stats
-docker stats
-
-# Reduce memory:
-# 1. Use smaller model (phi3:mini)
-# 2. Add memory limits to docker-compose
-# 3. Reduce max connections
-```
-
-### Metrics Not Appearing in Grafana
-
-```bash
-# Check Prometheus targets
-curl http://localhost:9091/api/v1/targets
-
-# Verify metrics endpoint
-curl http://localhost:9090/metrics
-
-# Check Prometheus logs
-docker logs miragepot-prometheus
-```
-
-### Session Logs Not Saving
-
-```bash
-# Check volume mount
-docker exec miragepot-honeypot ls -la /app/data/logs/
-
-# Check permissions
-ls -la data/logs/
-
-# Fix permissions
-chmod 755 data/logs/
-```
+Quick links:
+- [Docker issues](TROUBLESHOOTING.md#docker-issues)
+- [Installation issues](TROUBLESHOOTING.md#installation-issues)
+- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
+- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
+- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
 
 ---
 

@@ -66,20 +66,23 @@ brew install ollama
 
 ### 3. Download the LLM Model
 
-Start Ollama and pull the Phi-3 model:
+Start Ollama and optionally pre-download the Phi-3 model:
 
 ```bash
 # Start Ollama server (runs in background)
 ollama serve &
 
-# Pull the Phi-3 model (about 2GB download)
+# (Optional) Pre-download the Phi-3 model (about 2GB)
+# Note: The model downloads automatically on first run if not present
 ollama pull phi3
 ```
 
+The model will download automatically when you first start MiragePot if not already present. Pre-downloading is recommended for faster first startup.
+
 Alternative models (modify MIRAGEPOT_LLM_MODEL):
-- `llama2` - Larger, more capable
-- `mistral` - Good balance of speed/quality
-- `codellama` - Better for code-related queries
+- `llama2` - Larger, more capable (~4GB)
+- `mistral` - Good balance of speed/quality (~4GB)
+- `codellama` - Better for code-related queries (~4GB)
 
 ### 4. Clone and Install MiragePot
 
@@ -158,61 +161,14 @@ This includes testing, linting, and formatting tools.
 
 ## Troubleshooting
 
-### "Address already in use" Error
+For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
-Another process is using port 2222:
-
-```bash
-# Find the process
-lsof -i :2222
-
-# Kill it or use a different port
-miragepot --port 2223
-```
-
-### "ollama: command not found"
-
-Ollama is not installed or not in PATH:
-
-```bash
-# Check if Ollama is installed
-which ollama
-
-# If not found, reinstall
-curl -fsSL https://ollama.ai/install.sh | sh
-```
-
-### "Model not found" Warning
-
-The LLM model hasn't been downloaded:
-
-```bash
-ollama pull phi3
-```
-
-### Connection Refused to Ollama
-
-Ollama server isn't running:
-
-```bash
-# Start Ollama
-ollama serve
-```
-
-### Permission Denied on Port 22
-
-Standard SSH port requires root privileges:
-
-```bash
-# Option 1: Use a high port (recommended)
-miragepot --port 2222
-
-# Option 2: Run as root (not recommended)
-sudo miragepot --port 22
-
-# Option 3: Use capabilities
-sudo setcap 'cap_net_bind_service=+ep' $(which python3)
-```
+Quick links:
+- [Installation issues](TROUBLESHOOTING.md#installation-issues)
+- [Docker issues](TROUBLESHOOTING.md#docker-issues)
+- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
+- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
+- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
 
 ## Uninstalling
 

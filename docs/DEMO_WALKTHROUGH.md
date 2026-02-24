@@ -512,17 +512,7 @@ curl http://localhost:9091/api/v1/query?query=miragepot_commands_total > metrics
 
 ## Troubleshooting
 
-### During Demo
-
-**"Container won't start"**
-
-```bash
-# Quick fix
-docker compose down && docker compose up -d
-
-# Check logs
-docker logs miragepot-honeypot
-```
+For comprehensive troubleshooting guidance including Docker issues, connectivity problems, database errors, and performance optimization, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
 
 **"SSH connection refused"**
 
@@ -576,7 +566,7 @@ curl http://localhost:3000/api/health
 
 Provide attendees with:
 1. **GitHub link**: https://github.com/evinbrijesh/MiragePot
-2. **Documentation**: Point them to docs/QUICK_START.md
+2. **Documentation**: Point them to README.md and docs/INSTALL.md
 3. **Offline bundle**: If they want to try immediately
 4. **Demo recording**: If you recorded the session
 

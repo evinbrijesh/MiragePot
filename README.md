@@ -23,6 +23,21 @@ MiragePot is an intelligent SSH honeypot that simulates a realistic Linux termin
 
 ## Quick Start
 
+### Prerequisites
+
+| Requirement | Minimum | Notes |
+|-------------|---------|-------|
+| **Docker** | 20.10+ | [Install Docker](https://docs.docker.com/get-docker/) |
+| **Docker Compose** | v2.0+ | Included with Docker Desktop |
+| **Disk Space** | 5GB free | For images + AI model |
+| **RAM** | 4GB minimum | 8GB recommended for full stack |
+
+Verify installation:
+```bash
+docker --version
+docker compose version
+```
+
 ### Docker Deployment (Recommended for Demos)
 
 Deploy the complete monitoring stack in one command:
@@ -70,8 +85,12 @@ docker compose ps
 ```
 
 **🔧 Common Issues:**
-- **"Waiting for model download"** → Normal on first run, be patient
-- **"Connection refused to Ollama"** → Model still downloading, wait 2-5 min
+
+For detailed troubleshooting, see [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
+
+Quick fixes:
+- **"Waiting for model download"** → Normal on first run, be patient (2-5 min)
+- **"Connection refused to Ollama"** → Model still downloading, check `docker logs miragepot-ollama`
 - **Download seems stuck** → Check internet connection, try `docker compose restart ollama`
 
 **Offline deployment** (for demos without internet):
@@ -82,34 +101,29 @@ See [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - complete script for technical
 
 ### Local Installation (For Development)
 
-For customization or contributing to the project:
+For development setup without Docker, see the [Installation Guide](docs/INSTALL.md).
 
+Quick summary:
 ```bash
-# Clone the repository
+# Clone and install
 git clone https://github.com/evinbrijesh/MiragePot.git
 cd MiragePot
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-
-# Install MiragePot
+source venv/bin/activate
 pip install -e .
 
-# Setup Ollama (required for AI responses)
+# Setup Ollama
+ollama serve &
 ollama pull phi3
-ollama serve  # Keep running in background
 
 # Start honeypot
 python run.py
 ```
 
-Test it:
-```bash
-ssh root@127.0.0.1 -p 2222  # Any password works
-```
+Test: `ssh root@127.0.0.1 -p 2222` (any password works)  
+Dashboard: http://localhost:8501
 
-Open the dashboard at http://localhost:8501
+See [INSTALL.md](docs/INSTALL.md) for detailed OS-specific instructions.
 
 ## Deployment Options
 
@@ -203,19 +217,22 @@ miragepot --help
 ## Documentation
 
 ### Getting Started
-- [Quick Start Guide](docs/QUICK_START.md) - Get running in 5 minutes
-- [Docker Deployment](docs/DOCKER_DEPLOYMENT.md) - Complete deployment reference
-- [Offline Deployment](docs/OFFLINE_DEPLOYMENT.md) - Deploy without internet (for demos)
-
-### Using MiragePot
-- [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - Present to technical audiences
-- [Monitoring Guide](docs/MONITORING.md) - Grafana dashboards and metrics
+- [Installation Guide](docs/INSTALL.md) - Local development setup
+- [Docker Deployment](docs/DOCKER_DEPLOYMENT.md) - Production deployment guide
 - [Configuration Reference](docs/CONFIGURATION.md) - All settings explained
+
+### Operations
+- [Usage Guide](docs/USAGE.md) - Running and testing MiragePot
+- [Monitoring Guide](docs/MONITORING.md) - Grafana dashboards and metrics
+- [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
+
+### Specialized Deployments
+- [Offline Deployment](docs/OFFLINE_DEPLOYMENT.md) - Deploy without internet (for demos)
+- [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - Present to technical audiences
 
 ### Development
 - [Architecture](docs/architecture.md) - System design and components
 - [Contributing](CONTRIBUTING.md) - How to contribute
-- [Installation Guide](docs/INSTALL.md) - Local development setup
 
 ## How It Works
 

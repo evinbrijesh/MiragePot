@@ -29,7 +29,7 @@ safer to operate in a lab environment.
 
 ## 2. Module-Level Architecture
 
-### 2.1 `backend/server.py` – SSH Honeypot Orchestrator
+### 2.1 `miragepot/server.py` – SSH Honeypot Orchestrator
 
 **Responsibilities:**
 
@@ -92,7 +92,7 @@ transport, command processing, active defense, and logging.
 
 ---
 
-### 2.2 `backend/ssh_interface.py` – SSH Transport Layer
+### 2.2 `miragepot/ssh_interface.py` – SSH Transport Layer
 
 **Responsibilities:**
 
@@ -126,7 +126,7 @@ on higher-level honeypot logic.
 
 ---
 
-### 2.3 `backend/command_handler.py` – Hybrid Command Engine & Fake Filesystem
+### 2.3 `miragepot/command_handler.py` – Hybrid Command Engine & Fake Filesystem
 
 **Responsibilities:**
 
@@ -210,7 +210,7 @@ terminal-style output.
 
 ---
 
-### 2.4 `backend/ai_interface.py` – LLM Bridge (Ollama + Phi-3)
+### 2.4 `miragepot/ai_interface.py` – LLM Bridge (Ollama + Phi-3)
 
 **Responsibilities:**
 
@@ -247,7 +247,7 @@ without impacting the core honeypot logic.
 
 ---
 
-### 2.5 `backend/defense_module.py` – Active Defense & Tarpit
+### 2.5 `miragepot/defense_module.py` – Active Defense & Tarpit
 
 **Responsibilities:**
 
@@ -362,7 +362,7 @@ understanding attacker behavior over time.
 **Behavior:**
 
 - Uses Python's `subprocess.Popen` to start:
-  - `python backend/server.py`
+  - `python -m miragepot`
   - `streamlit run dashboard/app.py`
 - Prints helpful messages indicating:
   - How to connect to the SSH honeypot
@@ -381,8 +381,8 @@ only need to install dependencies, start Ollama, and run `python run.py`.
 ### 3.1 Command Flow
 
 1. Attacker connects via SSH to port `2222`.
-2. Paramiko (`ssh_interface.py` and `server.py`) accept the connection.
-3. `server.py` initializes `session_state` and `session_log`.
+2. Paramiko (`miragepot/ssh_interface.py` and `miragepot/server.py`) accept the connection.
+3. `miragepot/server.py` initializes `session_state` and `session_log`.
 4. For each command entered by the attacker:
    - The command is read from the SSH channel.
    - A threat score and tarpit delay are computed and applied.
@@ -394,7 +394,7 @@ only need to install dependencies, start Ollama, and run `python run.py`.
 ### 3.2 Security Flow
 
 - Every command is inspected for suspicious patterns using the keyword
-  map in `defense_module.py`.
+  map in `miragepot/defense_module.py`.
 - Potentially destructive or reconnaissance-related commands incur a
   higher score and therefore a longer delay before response.
 - This delay can slow down automated tools and provide early warning of

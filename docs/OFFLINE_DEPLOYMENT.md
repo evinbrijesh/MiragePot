@@ -414,91 +414,14 @@ Common questions:
 
 ## Troubleshooting
 
-### "Cannot connect to Docker daemon"
+For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
-```bash
-# Check Docker status
-systemctl status docker
-
-# Start Docker
-sudo systemctl start docker
-
-# Or restart Docker Desktop (Mac/Windows)
-```
-
-### "Image not found" after docker load
-
-```bash
-# Verify image file exists
-ls -lh miragepot-images.tar
-
-# Try loading again with verbose output
-docker load -i miragepot-images.tar
-
-# List loaded images
-docker images
-```
-
-### "Ollama model not found"
-
-```bash
-# Check if volume was restored
-docker volume inspect ollama
-
-# Check model inside container
-docker exec miragepot-ollama ls -la /root/.ollama/models/
-
-# If missing, restore again:
-docker run --rm -v ollama:/ollama -v $(pwd):/backup \
-  alpine tar xzf /backup/ollama-models.tar.gz -C /ollama
-```
-
-### "Port already in use"
-
-```bash
-# Find what's using the port
-sudo lsof -i :2222
-
-# Kill the process or change port in docker-compose.yml
-```
-
-### "Container keeps restarting"
-
-```bash
-# Check logs
-docker logs miragepot-honeypot
-
-# Common issues:
-# - .env.docker missing → cp .env.docker.example .env.docker
-# - Permission issues → check volume mounts
-# - Corrupted image → re-export and reload
-```
-
-### "Grafana dashboards not showing data"
-
-```bash
-# Check if Prometheus is scraping
-curl http://localhost:9091/api/v1/targets
-
-# Restart Grafana
-docker restart miragepot-grafana
-
-# Re-import dashboards
-./scripts/setup-grafana-dashboards.sh
-```
-
-### "AI responses are slow/not working"
-
-```bash
-# Check Ollama status
-docker exec miragepot-ollama ollama list
-
-# Test Ollama directly
-docker exec miragepot-ollama ollama run phi3 "Say hello"
-
-# Check honeypot logs
-docker logs miragepot-honeypot | grep -i ollama
-```
+Quick links:
+- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
+- [Docker issues](TROUBLESHOOTING.md#docker-issues)
+- [Installation issues](TROUBLESHOOTING.md#installation-issues)
+- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
+- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
 
 ---
 

@@ -262,46 +262,14 @@ MIRAGEPOT_LLM_MODEL=llama2 miragepot
 
 ## Troubleshooting
 
-### Honeypot Not Responding
+For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
-1. Check if Ollama is running:
-   ```bash
-   ollama list
-   ```
-
-2. Check port availability:
-   ```bash
-   lsof -i :2222
-   ```
-
-3. Check logs for errors:
-   ```bash
-   miragepot --log-level DEBUG
-   ```
-
-### Slow Responses
-
-1. Ollama might be loading the model. First query is slowest.
-2. Try a smaller model: `MIRAGEPOT_LLM_MODEL=phi3`
-3. Reduce timeout: `MIRAGEPOT_LLM_TIMEOUT=15`
-
-### Dashboard Not Loading
-
-1. Check if Streamlit is installed:
-   ```bash
-   pip install streamlit
-   ```
-
-2. Check if port 8501 is available:
-   ```bash
-   lsof -i :8501
-   ```
-
-### No Session Logs
-
-1. Check `data/logs/` directory exists
-2. Verify write permissions
-3. Make sure attacker actually ran commands (not just connected)
+Quick links:
+- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
+- [Docker issues](TROUBLESHOOTING.md#docker-issues)
+- [Installation issues](TROUBLESHOOTING.md#installation-issues)
+- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
+- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
 
 ## Security Considerations
 
@@ -316,4 +284,3 @@ MIRAGEPOT_LLM_MODEL=llama2 miragepot
 - [INSTALL.md](INSTALL.md) - Installation guide
 - [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
 - [architecture.md](architecture.md) - System architecture
-- [attacker_playbook.md](attacker_playbook.md) - Simulated attack scenarios

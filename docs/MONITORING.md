@@ -352,41 +352,14 @@ Export dashboard JSON:
 
 ## Troubleshooting
 
-### Metrics Not Appearing
+For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
 
-1. Check if metrics endpoint is accessible:
-   ```bash
-   curl http://localhost:9090/metrics
-   ```
-
-2. Check Prometheus targets:
-   ```
-   http://localhost:9091/targets
-   ```
-
-3. Verify Prometheus is scraping:
-   ```bash
-   docker logs miragepot-prometheus
-   ```
-
-### Grafana Can't Connect to Prometheus
-
-1. Check datasource configuration:
-   - URL should be `http://prometheus:9091` (Docker internal)
-   
-2. Test connection:
-   - Data Sources → Prometheus → Test
-
-### Dashboards Not Loading
-
-1. Re-import dashboards:
-   ```bash
-   ./scripts/setup-grafana-dashboards.sh
-   ```
-
-2. Check for datasource UID mismatch:
-   - Edit dashboard JSON
-   - Update `"uid": "prometheus"` in datasource references
+Quick links:
+- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
+- [Docker issues](TROUBLESHOOTING.md#docker-issues)
+- [Installation issues](TROUBLESHOOTING.md#installation-issues)
+- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
+- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
 
 ---
 
