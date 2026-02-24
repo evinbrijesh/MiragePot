@@ -243,9 +243,9 @@ class TestFindCommand:
         assert "/root" in output
 
     def test_find_by_name(self):
-        """find -name filters by name."""
+        """find -name filters by name using glob patterns."""
         state = init_session_state()
-        output = handle_find_command("/root -name notes", state)
+        output = handle_find_command("/root -name *.txt", state)
         assert "notes.txt" in output
 
     def test_find_type_directory(self):

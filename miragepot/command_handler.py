@@ -76,6 +76,7 @@ from .honeytokens import (
 )
 from .metrics import get_metrics_collector
 from .defense_module import calculate_threat_score
+from .config import get_config
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CACHE_PATH = DATA_DIR / "cache.json"
@@ -461,6 +462,100 @@ def _load_cache() -> Dict[str, str]:
 CACHE = _load_cache()
 
 
+def _fake_file_content(source: str, filename: str = "") -> str:
+    """Return realistic-looking fake content for a downloaded file.
+
+    The content is chosen based on the file extension / URL so that an
+    attacker reading the file sees something plausible rather than a
+    comment that identifies MiragePot.
+    """
+    name = (filename or source.split("/")[-1] or "file").lower().split("?")[0]
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+
+    if ext in ("sh", "bash"):
+        return (
+            "#!/bin/bash\n"
+            "set -e\n"
+            "# Installer script\n"
+            'INSTALL_DIR="/opt/app"\n'
+            'mkdir -p "$INSTALL_DIR"\n'
+            'echo "[*] Installing..."\n'
+            'cp -r . "$INSTALL_DIR"\n'
+            'echo "[+] Done."\n'
+        )
+    if ext == "py":
+        return (
+            "#!/usr/bin/env python3\n"
+            "import os, sys\n\n"
+            "def main():\n"
+            "    print('Starting...')\n\n"
+            "if __name__ == '__main__':\n"
+            "    main()\n"
+        )
+    if ext in ("php",):
+        return (
+            "<?php\n"
+            "// Application entry point\n"
+            "define('APP_ROOT', dirname(__FILE__));\n"
+            "require_once APP_ROOT . '/config.php';\n"
+            "?>\n"
+        )
+    if ext in ("html", "htm"):
+        domain = source.split("/")[2] if source.startswith("http") else "example.com"
+        return (
+            "<!DOCTYPE html>\n"
+            "<html>\n"
+            "<head><title>Welcome</title></head>\n"
+            "<body>\n"
+            f"<h1>Welcome to {domain}</h1>\n"
+            "<p>Page content goes here.</p>\n"
+            "</body>\n"
+            "</html>\n"
+        )
+    if ext in ("tar", "gz", "tgz", "zip", "bz2", "xz"):
+        # Binary archives — just a handful of non-printable-looking bytes
+        return "\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\x03"
+    if ext in ("pl", "rb"):
+        return (
+            (
+                "#!/usr/bin/env perl\n"
+                "use strict;\n"
+                "use warnings;\n\n"
+                'print "Starting...\\n";\n'
+            )
+            if ext == "pl"
+            else ("#!/usr/bin/env ruby\nputs 'Starting...'\n")
+        )
+    if ext in ("conf", "cfg", "ini", "env"):
+        return (
+            "# Configuration file\n"
+            "[settings]\n"
+            "debug=false\n"
+            "log_level=info\n"
+            "timeout=30\n"
+        )
+    if ext == "json":
+        return '{\n  "status": "ok",\n  "version": "1.0.0"\n}\n'
+    if ext in ("txt", "log"):
+        return "Log output\n2024-01-15 12:00:00 INFO  Application started\n"
+    # No recognised extension — URLs without extensions are typically HTML pages;
+    # binary filenames (no dot at all) get an ELF stub.
+    if "." not in name or ext in ("com", "org", "net", "io", "dev"):
+        domain = source.split("/")[2] if source.startswith("http") else "example.com"
+        return (
+            "<!DOCTYPE html>\n"
+            "<html>\n"
+            "<head><title>Welcome</title></head>\n"
+            "<body>\n"
+            f"<h1>Welcome to {domain}</h1>\n"
+            "<p>Page content goes here.</p>\n"
+            "</body>\n"
+            "</html>\n"
+        )
+    # Default: look like a small ELF/binary stub
+    return "\x7fELF\x02\x01\x01\x00\x00\x00\x00\x00\x00\x00\x00\x00"
+
+
 def _generate_realistic_bash_history() -> str:
     """Generate a realistic-looking bash history for a server admin."""
     return """cd /var/www/html
@@ -523,6 +618,7 @@ def _generate_auth_log() -> str:
     from datetime import datetime, timedelta
     import random
 
+    hostname = get_config().honeypot.hostname
     lines = []
     base_time = datetime.now() - timedelta(days=7)
 
@@ -538,10 +634,10 @@ def _generate_auth_log() -> str:
             user = random.choice(users)
             ip = random.choice(ips)
             lines.append(
-                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: Accepted password for {user} from {ip} port {random.randint(40000, 60000)} ssh2"
+                f"{ts_str} {hostname} sshd[{random.randint(1000, 9999)}]: Accepted password for {user} from {ip} port {random.randint(40000, 60000)} ssh2"
             )
             lines.append(
-                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: pam_unix(sshd:session): session opened for user {user} by (uid=0)"
+                f"{ts_str} {hostname} sshd[{random.randint(1000, 9999)}]: pam_unix(sshd:session): session opened for user {user} by (uid=0)"
             )
         else:  # 30% failed
             fake_user = random.choice(
@@ -549,7 +645,7 @@ def _generate_auth_log() -> str:
             )
             fake_ip = f"{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}.{random.randint(1, 255)}"
             lines.append(
-                f"{ts_str} miragepot sshd[{random.randint(1000, 9999)}]: Failed password for invalid user {fake_user} from {fake_ip} port {random.randint(40000, 60000)} ssh2"
+                f"{ts_str} {hostname} sshd[{random.randint(1000, 9999)}]: Failed password for invalid user {fake_user} from {fake_ip} port {random.randint(40000, 60000)} ssh2"
             )
 
     lines.sort()
@@ -561,6 +657,7 @@ def _generate_syslog() -> str:
     from datetime import datetime, timedelta
     import random
 
+    hostname = get_config().honeypot.hostname
     lines = []
     base_time = datetime.now() - timedelta(hours=24)
 
@@ -590,7 +687,7 @@ def _generate_syslog() -> str:
             msg = msg_template
 
         lines.append(
-            f"{ts_str} miragepot {service}[{random.randint(100, 9999)}]: {msg}"
+            f"{ts_str} {hostname} {service}[{random.randint(100, 9999)}]: {msg}"
         )
 
     lines.sort()
@@ -613,6 +710,7 @@ def init_session_state() -> Dict[str, Any]:
     # Generate unique session ID and honeytokens for this session
     session_id = generate_session_id()
     honeytokens = init_honeytokens(session_id)
+    hostname = get_config().honeypot.hostname
 
     # Comprehensive Ubuntu 20.04 directory structure
     directories = {
@@ -748,10 +846,10 @@ def init_session_state() -> Dict[str, Any]:
         # =====================================================================
         # /etc - System configuration files
         # =====================================================================
-        "/etc/hostname": "miragepot\n",
+        "/etc/hostname": hostname + "\n",
         "/etc/hosts": (
             "127.0.0.1\tlocalhost\n"
-            "127.0.1.1\tmiragepot\n"
+            f"127.0.1.1\t{hostname}\n"
             "10.0.0.5\tdb.internal.local\n"
             "10.0.0.10\tcache.internal.local\n"
             "\n"
@@ -1055,7 +1153,7 @@ def init_session_state() -> Dict[str, Any]:
         "/root/.gitconfig": (
             "[user]\n"
             "\tname = Admin\n"
-            "\temail = admin@miragepot.local\n"
+            f"\temail = admin@{hostname}.local\n"
             "[core]\n"
             "\teditor = vim\n"
             "[alias]\n"
@@ -1064,8 +1162,8 @@ def init_session_state() -> Dict[str, Any]:
             "\tbr = branch\n"
         ),
         "/root/.ssh/authorized_keys": (
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fake_key_data_here_for_miragepot_honeypot_system admin@workstation\n"
-            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake_ed25519_key_for_backup backup@miragepot\n"
+            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQC7fake_key_data_here_for_honeypot_system admin@workstation\n"
+            f"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFake_ed25519_key_for_backup backup@{hostname}\n"
         ),
         "/root/.ssh/known_hosts": (
             "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq2A7hRGmd...\n"
@@ -1209,7 +1307,7 @@ def init_session_state() -> Dict[str, Any]:
             "history\n"
         ),
         "/home/user/.ssh/authorized_keys": (
-            "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFakeMiragePotUserKey user@miragepot\n"
+            f"ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQDFakeUserKey user@{hostname}\n"
         ),
         "/home/user/.ssh/known_hosts": (
             "github.com ssh-rsa AAAAB3NzaC1yc2EAAAABIwAAAQEAq...\n"
@@ -1391,7 +1489,7 @@ def init_session_state() -> Dict[str, Any]:
             "SwapTotal:       2097148 kB\n"
             "SwapFree:        2097148 kB\n"
         ),
-        "/proc/uptime": "1234567.89 2345678.90\n",
+        "/proc/uptime": "3640500.00 7136180.00\n",
         "/proc/loadavg": "0.15 0.10 0.05 1/234 5678\n",
     }
 
@@ -1451,9 +1549,7 @@ def _handle_cd(args: str, state: Dict[str, Any]) -> str:
     directories = state.get("directories", set())
 
     if new_path not in directories:
-        # For simplicity, pretend any path accessed actually exists.
-        directories.add(new_path)
-        state["directories"] = directories
+        return f"bash: cd: {target}: No such file or directory\n"
 
     state["cwd"] = new_path
     return ""
@@ -1508,87 +1604,111 @@ def _handle_ls(args: str, state: Dict[str, Any]) -> str:
     files: Dict[str, str] = state.get("files", {})
     file_metadata: Dict[str, FileMetadata] = state.get("file_metadata", {})
 
-    # Parse flags and target path
+    # Parse flags and target paths
     parts = args.strip().split()
     flags = ""
-    target = cwd
+    targets = []
 
     for part in parts:
         if part.startswith("-"):
             flags += part[1:]  # Accumulate flags without the dash
         else:
-            target = part
+            targets.append(part)
+
+    if not targets:
+        targets = [cwd]
 
     show_hidden = "a" in flags
     long_format = "l" in flags
 
-    target_path = _normalize_path(cwd, target)
+    multi = len(targets) > 1
+    output_sections = []
 
-    if target_path not in directories and target_path not in files:
-        return f"ls: cannot access '{target}': No such file or directory\n"
+    for target in targets:
+        target_path = _normalize_path(cwd, target)
 
-    # If target is a file, just show the file
-    if target_path in files and target_path not in directories:
-        name = target_path.split("/")[-1]
-        if long_format:
-            meta = file_metadata.get(target_path)
-            if meta:
-                return meta.format_ls_long(name) + "\n"
-            return f"-rw-r--r-- 1 root root {len(files[target_path]):>8} Jan 20 12:00 {name}\n"
-        return f"{name}\n"
+        if target_path not in directories and target_path not in files:
+            output_sections.append(
+                f"ls: cannot access '{target}': No such file or directory"
+            )
+            continue
 
-    # Collect children
-    children = []
-    prefix = target_path + "/" if target_path != "/" else "/"
-
-    for d in directories:
-        if d.startswith(prefix) and d != target_path:
-            rel = d[len(prefix) :]
-            if "/" not in rel and rel:
-                children.append((rel, "d", d))  # directory
-
-    for fpath in files.keys():
-        if fpath.startswith(prefix):
-            rel = fpath[len(prefix) :]
-            if "/" not in rel and rel:
-                children.append((rel, "f", fpath))  # file
-
-    # Filter hidden files unless -a flag
-    if not show_hidden:
-        children = [
-            (name, typ, path)
-            for name, typ, path in children
-            if not name.startswith(".")
-        ]
-
-    if not children:
-        return "\n" if not long_format else "total 0\n"
-
-    children = sorted(set(children), key=lambda x: x[0])
-
-    if long_format:
-        # Calculate total blocks (fake)
-        total_blocks = len(children) * 4
-        lines = [f"total {total_blocks}"]
-
-        for name, typ, full_path in children:
-            meta = file_metadata.get(full_path)
-            if meta:
-                lines.append(meta.format_ls_long(name))
-            else:
-                # Create default metadata
-                if typ == "d":
-                    meta = create_default_metadata("", is_dir=True)
+        # If target is a file, just show the file
+        if target_path in files and target_path not in directories:
+            name = target_path.split("/")[-1]
+            if long_format:
+                meta = file_metadata.get(target_path)
+                if meta:
+                    output_sections.append(meta.format_ls_long(name))
                 else:
-                    content = files.get(full_path, "")
-                    meta = create_default_metadata(content, is_dir=False)
-                file_metadata[full_path] = meta
-                state["file_metadata"] = file_metadata
-                lines.append(meta.format_ls_long(name))
+                    output_sections.append(
+                        f"-rw-r--r-- 1 root root {len(files[target_path]):>8} Jan 20 12:00 {name}"
+                    )
+            else:
+                output_sections.append(name)
+            continue
 
-        return "\n".join(lines) + "\n"
-    else:
-        return "  ".join(name for name, _, _ in children) + "\n"
+        # Collect children
+        children = []
+        prefix = target_path + "/" if target_path != "/" else "/"
+
+        for d in directories:
+            if d.startswith(prefix) and d != target_path:
+                rel = d[len(prefix) :]
+                if "/" not in rel and rel:
+                    children.append((rel, "d", d))  # directory
+
+        for fpath in files.keys():
+            if fpath.startswith(prefix):
+                rel = fpath[len(prefix) :]
+                if "/" not in rel and rel:
+                    children.append((rel, "f", fpath))  # file
+
+        # Filter hidden files unless -a flag
+        if not show_hidden:
+            children = [
+                (name, typ, path)
+                for name, typ, path in children
+                if not name.startswith(".")
+            ]
+
+        children = sorted(set(children), key=lambda x: x[0])
+
+        section_lines = []
+        if multi:
+            section_lines.append(f"{target}:")
+
+        if not children:
+            if long_format:
+                section_lines.append("total 0")
+            output_sections.append("\n".join(section_lines))
+            continue
+
+        if long_format:
+            total_blocks = len(children) * 4
+            section_lines.append(f"total {total_blocks}")
+
+            for name, typ, full_path in children:
+                meta = file_metadata.get(full_path)
+                if meta:
+                    section_lines.append(meta.format_ls_long(name))
+                else:
+                    if typ == "d":
+                        meta = create_default_metadata("", is_dir=True)
+                    else:
+                        content = files.get(full_path, "")
+                        meta = create_default_metadata(content, is_dir=False)
+                    file_metadata[full_path] = meta
+                    state["file_metadata"] = file_metadata
+                    section_lines.append(meta.format_ls_long(name))
+        else:
+            section_lines.append("  ".join(name for name, _, _ in children))
+
+        output_sections.append("\n".join(section_lines))
+
+    if not output_sections:
+        return ""
+    return "\n".join(output_sections) + "\n"
 
 
 def _handle_cat(args: str, state: Dict[str, Any]) -> str:
@@ -1619,28 +1739,49 @@ def _handle_rm(args: str, state: Dict[str, Any]) -> str:
     directories = state.get("directories", set())
     files: Dict[str, str] = state.get("files", {})
 
-    # We will not simulate complex flags like -rf accurately;
-    # for safety and simplicity we treat everything as best effort.
     parts = [p for p in args.split() if p]
     if not parts:
         return "rm: missing operand\n"
 
+    # Separate flags from operands; collect -r/-R/-f/-i etc. but don't treat them as paths
+    recursive = False
+    force = False
+    targets = []
+    for p in parts:
+        if p.startswith("-") and len(p) > 1 and not p.startswith("--"):
+            if "r" in p.lower():
+                recursive = True
+            if "f" in p:
+                force = True
+        else:
+            targets.append(p)
+
+    if not targets:
+        return "rm: missing operand\n"
+
     output_lines = []
-    for name in parts:
+    for name in targets:
         path = _normalize_path(cwd, name)
         if path in files:
             del files[path]
             continue
         if path in directories:
-            # If directory has children, mimic "Directory not empty"
+            # If directory has children, mimic "Directory not empty" unless -r/-rf
             prefix = path + "/" if path != "/" else "/"
-            has_children = any(
-                d.startswith(prefix) and d != path for d in directories
-            ) or any(fp.startswith(prefix) for fp in files.keys())
-            if has_children:
+            child_dirs = [d for d in directories if d.startswith(prefix) and d != path]
+            child_files = [fp for fp in files.keys() if fp.startswith(prefix)]
+            has_children = bool(child_dirs or child_files)
+            if not recursive and has_children:
+                output_lines.append(f"rm: cannot remove '{name}': Is a directory")
+            elif not recursive and not has_children:
                 output_lines.append(f"rm: cannot remove '{name}': Is a directory")
             else:
-                directories.remove(path)
+                # Recursive removal
+                for d in child_dirs:
+                    directories.discard(d)
+                for fp in child_files:
+                    del files[fp]
+                directories.discard(path)
         else:
             output_lines.append(
                 f"rm: cannot remove '{name}': No such file or directory"
@@ -1792,7 +1933,7 @@ def _generate_wget_response(attempt: DownloadAttempt, state: Dict[str, Any]) -> 
         "",
         f"{output_file}        100%[===================>]   1.23K  --.-KB/s    in 0s",
         "",
-        "2024-01-15 12:00:01 (12.3 MB/s) - '{output_file}' saved [1256/1256]",
+        f'2024-01-15 12:00:01 (12.3 MB/s) - "{output_file}" saved [1256/1256]',
         "",
     ]
 
@@ -1806,9 +1947,7 @@ def _generate_wget_response(attempt: DownloadAttempt, state: Dict[str, Any]) -> 
         file_path = _normalize_path(cwd, filename)
 
     files = state.get("files", {})
-    files[file_path] = (
-        f"# Downloaded content from {source}\n# (simulated by MiragePot)\n"
-    )
+    files[file_path] = _fake_file_content(source, output_file)
     state["files"] = files
 
     return "\n".join(output_lines)
@@ -1826,16 +1965,8 @@ def _generate_curl_response(attempt: DownloadAttempt, state: Dict[str, Any]) -> 
 
     # If no output file specified, curl outputs to stdout
     if destination is None:
-        # Return fake HTML content (simulating stdout output)
-        return f"""<!DOCTYPE html>
-<html>
-<head><title>Example</title></head>
-<body>
-<h1>Welcome</h1>
-<p>This is a simulated response from {source}</p>
-</body>
-</html>
-"""
+        # Return context-aware fake content to stdout
+        return _fake_file_content(source)
 
     # If output file specified, show progress
     if not silent:
@@ -1858,9 +1989,7 @@ def _generate_curl_response(attempt: DownloadAttempt, state: Dict[str, Any]) -> 
         file_path = _normalize_path(cwd, destination)
 
     files = state.get("files", {})
-    files[file_path] = (
-        f"# Downloaded content from {source}\n# (simulated by MiragePot)\n"
-    )
+    files[file_path] = _fake_file_content(source, destination)
     state["files"] = files
 
     return output
@@ -1896,7 +2025,7 @@ def _generate_scp_response(attempt: DownloadAttempt, state: Dict[str, Any]) -> s
             file_path = _normalize_path(cwd, filename)
 
     files = state.get("files", {})
-    files[file_path] = f"# Content copied from {source}\n# (simulated by MiragePot)\n"
+    files[file_path] = _fake_file_content(source, filename)
     state["files"] = files
 
     # scp shows progress
@@ -1960,7 +2089,7 @@ def _generate_rsync_response(attempt: DownloadAttempt, state: Dict[str, Any]) ->
         # If destination looks like a directory (ends with /), put file inside
         if file_path.endswith("/"):
             file_path = file_path + filename
-        files[file_path] = f"# Synced from {source}\n# (simulated by MiragePot)\n"
+        files[file_path] = _fake_file_content(source, filename)
     state["files"] = files
 
     return f"""sending incremental file list
@@ -2038,9 +2167,6 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     if stripped.startswith("ps"):
         args = stripped[2:].strip()
         return True, handle_ps_command(args, sys_state)
-
-    if stripped == "top" or stripped.startswith("top "):
-        return True, handle_top_command(sys_state)
 
     if stripped.startswith("netstat"):
         args = stripped[7:].strip()
@@ -2358,19 +2484,8 @@ def _handle_interactive_command(command: str, state: Dict[str, Any]) -> Optional
 
     if cmd in ("top", "htop"):
         # These are interactive - in non-interactive context, return snapshot
-        return """top - 12:00:00 up 42 days,  3:15,  1 user,  load average: 0.08, 0.12, 0.10
-Tasks:  95 total,   1 running,  94 sleeping,   0 stopped,   0 zombie
-%Cpu(s):  2.3 us,  1.0 sy,  0.0 ni, 96.5 id,  0.2 wa,  0.0 hi,  0.0 si,  0.0 st
-MiB Mem :   3934.0 total,   1487.0 free,   1216.0 used,   1230.0 buff/cache
-MiB Swap:   2048.0 total,   2048.0 free,      0.0 used.   2424.0 avail Mem
-
-    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
-      1 root      20   0  169260  11560   8448 S   0.0   0.3   0:01.50 systemd
-    512 root      20   0   15420   6400   5632 S   0.0   0.2   0:00.10 sshd
-    650 root      20   0   11264   3200   2944 S   0.0   0.1   0:00.05 cron
-    900 www-data  20   0   55280  10240   8192 S   0.0   0.3   0:00.20 nginx
-   1024 root      20   0   25000   6400   3584 S   0.0   0.2   0:00.02 bash
-"""
+        sys_state: SystemState = state.get("system_state", SystemState())
+        return handle_top_command(sys_state)
 
     return None
 

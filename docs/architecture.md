@@ -103,7 +103,7 @@ transport, command processing, active defense, and logging.
 
 - **`get_or_create_host_key()`**  
   - Tries to load `data/host.key` as an RSA private key.  
-  - If missing or invalid, generates a new 2048-bit RSA key and writes
+  - If missing or invalid, generates a new 4096-bit RSA key and writes
     it to `data/host.key`.  
   - This gives the honeypot a persistent SSH fingerprint which feels
     more realistic to attackers.
@@ -145,15 +145,22 @@ For each SSH connection, `session_state` is a dictionary:
 {
     "cwd": "/root",                 # current working directory
     "directories": {"/", "/root"},  # fake directories (absolute paths)
-    "files": {                        # fake files (absolute path -> content)
+    "files": {                      # fake files (absolute path -> content)
         "/root/notes.txt": "hello\nworld\n",
         # ...
     },
+    "file_metadata": {              # per-file metadata (permissions, owner, etc.)
+        "/root/notes.txt": {"mode": "0644", "owner": "root", ...},
+    },
+    "ttp_state": SessionTTPState,   # MITRE ATT&CK TTP tracking per session
+    "honeytokens": SessionHoneytokens,  # honeytoken trigger tracking
+    "system_state": SystemState,    # simulated system state (users, services, etc.)
 }
 ```
 
 This state is stored in memory only and is never written to the real
-filesystem.
+filesystem. Additionally, each logged `SessionCommand` records its
+`cwd` at the time of execution for forensic replay.
 
 **Built-in Commands (Simulated Only):**
 
@@ -304,7 +311,162 @@ defenders more time to observe and potentially react.
 
 ---
 
-### 2.6 `dashboard/app.py` – Forensic Dashboard (Streamlit)
+### 2.6 `miragepot/ttp_detector.py` – MITRE ATT&CK TTP Detection
+
+**Responsibilities:**
+
+- Detect attacker Tactics, Techniques, and Procedures (TTPs) mapped to
+  the MITRE ATT&CK framework.
+- Track the attacker's progression through attack stages.
+
+**Key Concepts:**
+
+- **`AttackStage`** enum: `RECONNAISSANCE`, `INITIAL_ACCESS`,
+  `DISCOVERY`, `CREDENTIAL_ACCESS`, `LATERAL_MOVEMENT`, `EXECUTION`,
+  `PERSISTENCE`, `EXFILTRATION`, `IMPACT`.
+- **`TTPPattern`**: Named pattern with a regex, ATT&CK technique ID,
+  and associated attack stage.
+- **`SessionTTPState`**: Tracks detected TTPs and attack stage per
+  session.
+
+**Functions:**
+
+- `detect_ttps(command, session_ttp_state)` — scans the command against
+  known TTP patterns, records detections, and advances the session's
+  attack stage.
+
+---
+
+### 2.7 `miragepot/honeytokens.py` – Honeytoken Generation & Detection
+
+**Responsibilities:**
+
+- Seed the fake filesystem with realistic-looking credential files that
+  act as lures (honeytokens).
+- Detect when an attacker accesses or exfiltrates these files.
+
+**Key Features:**
+
+- Thread-safe random number generation using per-call `random.Random()`
+  instances.
+- Generates honeytoken files such as `passwords.txt`, `.env`, SSH keys,
+  AWS credentials, `.gitconfig`, and database config files.
+- `check_honeytoken_access(command, session_state)` detects when an
+  attacker cats, copies, or downloads a honeytoken.
+
+---
+
+### 2.8 `miragepot/filesystem.py` – Virtual Filesystem
+
+**Responsibilities:**
+
+- Provide higher-level filesystem operations on top of the in-memory
+  session state structures.
+
+**Key Features:**
+
+- Path normalization, file metadata tracking (permissions, owner, group,
+  timestamps).
+- Operations: `stat`, `chmod`, `chown`, `ls` (with metadata), `find`
+  (with glob matching), and `resolve_path`.
+- All operations act on the in-memory `session_state` — no real
+  filesystem access.
+
+---
+
+### 2.9 `miragepot/system_state.py` – Simulated System State
+
+**Responsibilities:**
+
+- Maintain a fake system state (users, groups, services, network
+  interfaces, environment variables) that persists across commands
+  within a session.
+- Provides realistic responses to system inspection commands (`w`,
+  `last`, `systemctl`, `service`, etc.).
+
+---
+
+### 2.10 `miragepot/tty_handler.py` – TTY / Line Editing
+
+**Responsibilities:**
+
+- Handle raw TTY input from the SSH channel (byte-by-byte), providing
+  line editing, command history (up/down arrows), and tab completion.
+- Derive tab-completion candidates from the `KNOWN_COMMANDS` set in
+  `command_handler.py` plus files/directories in the current session
+  state.
+
+---
+
+### 2.11 `miragepot/response_validator.py` – LLM Response Validation
+
+**Responsibilities:**
+
+- Post-process and validate LLM-generated responses to ensure they look
+  like real terminal output.
+- Detect and reject AI self-revelations (phrases like "as an AI",
+  "I cannot", etc.) and dynamically check for the configured honeypot
+  hostname appearing in AI-like contexts.
+- Sanitize output for terminal display (strip markdown, fix dates, etc.).
+
+---
+
+### 2.12 `miragepot/download_capture.py` – Download Attempt Capture
+
+**Responsibilities:**
+
+- Parse `wget`, `curl`, `scp`, `tftp`, `ftp`, and `rsync` commands to
+  extract download URLs, destinations, and methods.
+- Log download attempts for forensic analysis without executing any
+  real network requests.
+
+---
+
+### 2.13 `miragepot/rate_limiter.py` – Connection Rate Limiting
+
+**Responsibilities:**
+
+- Track per-IP and global connection counts.
+- Block IPs that exceed configurable connection thresholds.
+- Enforce maximum session duration limits.
+
+---
+
+### 2.14 `miragepot/metrics.py` – Prometheus Metrics
+
+**Responsibilities:**
+
+- Expose honeypot operational metrics via a Prometheus-compatible HTTP
+  endpoint (default port `9090`).
+- Tracks: active connections, total connections, commands processed,
+  LLM request latency, cache hits/misses, TTP detections, honeytoken
+  triggers, and threat scores.
+
+---
+
+### 2.15 `miragepot/session_export.py` – Session Export
+
+**Responsibilities:**
+
+- Export session log files to human-readable formats: plain text, JSON,
+  and HTML.
+- Used for offline forensic review and reporting.
+
+---
+
+### 2.16 `miragepot/config.py` – Configuration Management
+
+**Responsibilities:**
+
+- Load configuration from environment variables and `.env` files into
+  typed dataclass structures.
+- Provides `get_config()` as a singleton accessor for all modules.
+- Configuration sections: `ssh`, `llm`, `honeypot`, `logging`,
+  `dashboard`, `security`.
+
+---
+
+### 2.17 `dashboard/app.py` – Forensic Dashboard (Streamlit)
 
 **Responsibilities:**
 
@@ -348,11 +510,13 @@ defenders more time to observe and potentially react.
      session.
 
 This dashboard is especially useful for demonstration to faculty and for
-understanding attacker behavior over time.
+understanding attacker behavior over time. Access can be optionally
+protected with a password via the `MIRAGEPOT_DASHBOARD_PASSWORD`
+environment variable.
 
 ---
 
-### 2.7 `run.py` – Unified Runner
+### 2.18 `run.py` – Unified Runner
 
 **Responsibilities:**
 

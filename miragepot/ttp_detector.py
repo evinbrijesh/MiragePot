@@ -32,6 +32,7 @@ class AttackStage(Enum):
 
     RECONNAISSANCE = "reconnaissance"
     CREDENTIAL_ACCESS = "credential_access"
+    EXECUTION = "execution"
     PERSISTENCE = "persistence"
     PRIVILEGE_ESCALATION = "privilege_escalation"
     DEFENSE_EVASION = "defense_evasion"
@@ -270,7 +271,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         "Network connections enumeration",
     ),
     (
-        r"^ss\s",
+        r"^ss\b",
         "T1016",
         "System Network Configuration Discovery",
         AttackStage.RECONNAISSANCE,
@@ -1257,7 +1258,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"python.*-c",
         "T1059.006",
         "Python",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "medium",
         "Python one-liner execution",
     ),
@@ -1265,7 +1266,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"perl.*-e",
         "T1059.004",
         "Unix Shell",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "medium",
         "Perl one-liner execution",
     ),
@@ -1273,7 +1274,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"ruby.*-e",
         "T1059.006",
         "Ruby",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "medium",
         "Ruby one-liner execution",
     ),
@@ -1281,7 +1282,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"bash\s+-c",
         "T1059.004",
         "Unix Shell",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "low",
         "Bash command execution",
     ),
@@ -1289,15 +1290,47 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"sh\s+-c",
         "T1059.004",
         "Unix Shell",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "low",
         "Shell command execution",
+    ),
+    (
+        r"curl\s+.*\|\s*bash",
+        "T1059.004",
+        "Unix Shell",
+        AttackStage.EXECUTION,
+        "high",
+        "Remote script fetched and executed via curl|bash",
+    ),
+    (
+        r"wget\s+.*\|\s*sh\b",
+        "T1059.004",
+        "Unix Shell",
+        AttackStage.EXECUTION,
+        "high",
+        "Remote script fetched and executed via wget|sh",
+    ),
+    (
+        r"base64\s+.*-d.*\|\s*bash",
+        "T1059.004",
+        "Unix Shell",
+        AttackStage.EXECUTION,
+        "high",
+        "Base64-decoded payload executed via bash",
+    ),
+    (
+        r"python\s+-m\s+http\.server",
+        "T1105",
+        "Ingress Tool Transfer",
+        AttackStage.EXECUTION,
+        "high",
+        "Python HTTP server started for file transfer",
     ),
     (
         r"\|.*bash",
         "T1059.004",
         "Unix Shell",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "high",
         "Piped to bash execution",
     ),
@@ -1305,7 +1338,7 @@ SINGLE_COMMAND_PATTERNS: List[Tuple[str, str, str, AttackStage, str, str]] = [
         r"\|.*sh\b",
         "T1059.004",
         "Unix Shell",
-        AttackStage.RECONNAISSANCE,
+        AttackStage.EXECUTION,
         "high",
         "Piped to shell execution",
     ),
@@ -1556,6 +1589,7 @@ def _determine_current_stage(ttp_state: SessionTTPState) -> AttackStage:
         AttackStage.COLLECTION,
         AttackStage.DEFENSE_EVASION,
         AttackStage.PERSISTENCE,
+        AttackStage.EXECUTION,
         AttackStage.PRIVILEGE_ESCALATION,
         AttackStage.CREDENTIAL_ACCESS,
         AttackStage.RECONNAISSANCE,
@@ -1595,6 +1629,7 @@ def get_attack_summary(ttp_state: SessionTTPState) -> Dict[str, Any]:
         risk_level = "critical"
     elif (
         AttackStage.PERSISTENCE.value in ttp_state.stages_seen
+        or AttackStage.EXECUTION.value in ttp_state.stages_seen
         or AttackStage.LATERAL_MOVEMENT.value in ttp_state.stages_seen
         or high_confidence_count >= 3
     ):

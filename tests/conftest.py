@@ -14,12 +14,14 @@ def session_state() -> Dict[str, Any]:
 
 @pytest.fixture
 def empty_session_state() -> Dict[str, Any]:
-    """Create a minimal empty session state."""
-    return {
-        "cwd": "/root",
-        "directories": {"/", "/root"},
-        "files": {},
-    }
+    """Create a minimal empty session state with all required keys initialised."""
+    from miragepot.command_handler import init_session_state
+
+    state = init_session_state()
+    # Override filesystem to minimal set so tests that want an "empty" fs get one
+    state["directories"] = {"/", "/root"}
+    state["files"] = {}
+    return state
 
 
 @pytest.fixture

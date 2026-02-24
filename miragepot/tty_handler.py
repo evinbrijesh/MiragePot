@@ -17,6 +17,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
+from .config import get_config
+
 LOGGER = logging.getLogger(__name__)
 
 # ANSI Escape Sequences
@@ -63,7 +65,7 @@ class TTYState:
     current_buffer: str = ""
     saved_buffer: str = ""  # Buffer saved when entering history mode
     cursor_pos: int = 0
-    hostname: str = "miragepot"
+    hostname: str = field(default_factory=lambda: get_config().honeypot.hostname)
     username: str = "root"
 
     # Maximum history size
@@ -192,65 +194,11 @@ def get_tab_completions(partial: str, session_state: Dict[str, Any]) -> List[str
     """
     completions = []
 
-    # Common commands for command completion
-    common_commands = [
-        "ls",
-        "cd",
-        "pwd",
-        "cat",
-        "echo",
-        "mkdir",
-        "rm",
-        "cp",
-        "mv",
-        "touch",
-        "chmod",
-        "chown",
-        "find",
-        "grep",
-        "ps",
-        "top",
-        "kill",
-        "whoami",
-        "id",
-        "uname",
-        "hostname",
-        "ifconfig",
-        "ip",
-        "netstat",
-        "ss",
-        "curl",
-        "wget",
-        "scp",
-        "ssh",
-        "tar",
-        "gzip",
-        "gunzip",
-        "head",
-        "tail",
-        "less",
-        "more",
-        "vi",
-        "vim",
-        "nano",
-        "history",
-        "export",
-        "env",
-        "which",
-        "whereis",
-        "file",
-        "stat",
-        "df",
-        "du",
-        "free",
-        "uptime",
-        "w",
-        "who",
-        "last",
-        "exit",
-        "logout",
-        "clear",
-    ]
+    # Derive command list from the authoritative KNOWN_COMMANDS set.
+    # Lazy import avoids any circular-import risk at module load time.
+    from .command_handler import KNOWN_COMMANDS  # noqa: PLC0415
+
+    common_commands = sorted(KNOWN_COMMANDS)
 
     parts = partial.split()
 

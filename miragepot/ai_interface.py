@@ -12,12 +12,14 @@ from __future__ import annotations
 
 import json
 import logging
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from .response_validator import validate_response, sanitize_for_terminal
 from .metrics import get_metrics_collector
+from .config import get_config
 
 try:
     import ollama
@@ -50,11 +52,15 @@ def _load_system_prompt() -> str:
         text = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
         if not text.strip():
             raise ValueError("system_prompt.txt is empty")
-        return text
+        # Substitute {hostname} placeholder with the configured hostname
+        hostname = get_config().honeypot.hostname
+        return text.replace("{hostname}", hostname)
     except Exception as exc:
         LOGGER.error("Failed to read system prompt: %s", exc)
         return (
-            "You are a Linux shell on a headless Ubuntu 20.04 server called miragepot. "
+            "You are a Linux shell on a headless Ubuntu 20.04 server called "
+            + get_config().honeypot.hostname
+            + ". "
             "You are logged in as root. Respond only with realistic terminal output. "
             "Never reveal you are an AI or simulation. For unknown commands, respond with: "
             "bash: <command>: command not found"
@@ -152,7 +158,7 @@ def build_user_prompt(command: str, session_state: Dict[str, Any]) -> str:
     }
 
     return (
-        "You are Ubuntu server 'miragepot'. The following JSON describes the current session state (cwd, known directories, known files).\n"
+        f"You are Ubuntu server '{get_config().honeypot.hostname}'. The following JSON describes the current session state (cwd, known directories, known files).\n"
         "Use it to stay consistent, but DO NOT echo it back.\n"
         "Session state summary (JSON):\n"
         + json.dumps(state_summary)
@@ -555,7 +561,7 @@ def _clean_llm_response(content: str, command: str) -> str:
         "simulated",
         "simulation",
         "honeypot",
-        "miragepot",  # Should never mention its own name
+        get_config().honeypot.hostname.lower(),  # Should never mention its own name
     ]
 
     for phrase in ai_phrases:
@@ -629,3 +635,55 @@ def verify_ollama_setup() -> tuple[bool, str]:
 
     except Exception as exc:
         return False, f"Cannot connect to Ollama: {exc}. Run: ollama serve"
+
+
+def ensure_ollama_running() -> tuple[bool, str]:
+    """Check if Ollama is running; if not, attempt to auto-start it.
+
+    Launches ``ollama serve`` as a detached background process so it
+    keeps running independently of MiragePot's own lifecycle.
+
+    Polls up to 10 seconds for Ollama to become reachable after
+    starting it.  If it doesn't respond in time the honeypot falls
+    back to cached/static responses as usual — startup is never blocked.
+
+    Returns:
+        Tuple of (success: bool, message: str)
+    """
+    # Already up? Nothing to do.
+    ok, msg = verify_ollama_setup()
+    if ok:
+        return True, msg
+
+    LOGGER.info("Ollama not running — attempting to auto-start 'ollama serve'...")
+
+    try:
+        subprocess.Popen(
+            ["ollama", "serve"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,  # detach from MiragePot's process group
+        )
+    except FileNotFoundError:
+        return (
+            False,
+            "ollama executable not found in PATH. "
+            "Install from https://ollama.ai and run 'ollama pull phi3'.",
+        )
+    except Exception as exc:
+        return False, f"Failed to auto-start Ollama: {exc}"
+
+    # Poll until reachable (max 10 seconds)
+    for attempt in range(1, 11):
+        time.sleep(1)
+        LOGGER.debug("Waiting for Ollama to start (attempt %d/10)...", attempt)
+        ok, msg = verify_ollama_setup()
+        if ok:
+            LOGGER.info("Ollama auto-started successfully.")
+            return True, f"Ollama auto-started successfully. {msg}"
+
+    return (
+        False,
+        "Ollama was started but did not become reachable within 10 seconds. "
+        "LLM responses will use fallback mode.",
+    )

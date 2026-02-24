@@ -16,7 +16,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+
+from .config import get_config
 
 
 @dataclass
@@ -92,7 +95,6 @@ AI_REVELATION_PHRASES = [
     "in reality",
     "on a real server",
     "honeypot",
-    "miragepot",
     "fake system",
     "fake server",
     "emulated",
@@ -240,7 +242,10 @@ def validate_response(
 
     # Check 1: AI revelation phrases
     response_lower = response.lower()
-    for phrase in AI_REVELATION_PHRASES:
+    # Also check the configured hostname — it should never appear in LLM output
+    hostname_phrase = get_config().honeypot.hostname.lower()
+    revelation_phrases = list(AI_REVELATION_PHRASES) + [hostname_phrase]
+    for phrase in revelation_phrases:
         if phrase in response_lower:
             issues.append(f"AI revelation phrase detected: '{phrase}'")
             # This is critical - must reject
@@ -431,9 +436,9 @@ def _generate_safe_fallback(command: str, session_state: Dict[str, Any]) -> str:
 
     # Common fallback responses
     fallbacks = {
-        "date": "Tue Jan 20 12:00:00 UTC 2026\n",
+        "date": datetime.now(timezone.utc).strftime("%a %b %d %H:%M:%S UTC %Y") + "\n",
         "uptime": " 12:00:00 up 42 days,  3:15,  1 user,  load average: 0.08, 0.12, 0.10\n",
-        "hostname": "miragepot\n",
+        "hostname": get_config().honeypot.hostname + "\n",
         "arch": "x86_64\n",
         "nproc": "4\n",
         "pwd": session_state.get("cwd", "/root") + "\n",
@@ -468,7 +473,7 @@ def _handle_echo_fallback(command: str) -> str:
                 "SHELL": "/bin/bash",
                 "PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
                 "PWD": "/root",
-                "HOSTNAME": "miragepot",
+                "HOSTNAME": get_config().honeypot.hostname,
                 "TERM": "xterm-256color",
             }
             return env_vars.get(var_name, "")
@@ -540,7 +545,9 @@ def is_plausible_terminal_output(text: str) -> bool:
             return False
 
     # Check for AI revelations
-    for phrase in AI_REVELATION_PHRASES[:15]:  # Check most critical ones
+    hostname_phrase = get_config().honeypot.hostname.lower()
+    revelation_check = list(AI_REVELATION_PHRASES[:15]) + [hostname_phrase]
+    for phrase in revelation_check:
         if phrase in text_lower:
             return False
 

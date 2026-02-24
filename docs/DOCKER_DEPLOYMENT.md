@@ -230,7 +230,7 @@ docker compose ps
 | Service | URL/Command | Default Credentials |
 |---------|-------------|---------------------|
 | SSH Honeypot | `ssh root@localhost -p 2222` | Any password |
-| Dashboard | http://localhost:8501 | None |
+| Dashboard | http://localhost:8501 | None (optional: set `MIRAGEPOT_DASHBOARD_PASSWORD`) |
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9091 | None |
 | Alertmanager | http://localhost:9093 | None |
@@ -314,6 +314,7 @@ MIRAGEPOT_MAX_CONNECTIONS_PER_IP=3
 MIRAGEPOT_MAX_TOTAL_CONNECTIONS=50
 MIRAGEPOT_BLOCK_DURATION=300       # 5 minutes
 MIRAGEPOT_MAX_SESSION_DURATION=3600  # 1 hour
+MIRAGEPOT_DASHBOARD_PASSWORD=       # Optional: set a password to protect the dashboard
 ```
 
 #### Alerting (Full Stack)
@@ -431,6 +432,9 @@ services:
 ```bash
 # Grafana (edit .env.docker)
 GRAFANA_ADMIN_PASSWORD=your-secure-password-here
+
+# Streamlit Dashboard (edit .env.docker)
+MIRAGEPOT_DASHBOARD_PASSWORD=your-dashboard-password-here
 ```
 
 ### 3. Firewall Configuration

@@ -115,10 +115,9 @@ def generate_aws_access_key(session_id: str) -> str:
     Format: AKIA + 16 uppercase alphanumeric characters
     The key includes session-specific entropy for uniqueness.
     """
-    # Use session ID as seed for reproducibility within session
-    random.seed(f"{session_id}_aws_access")
+    rng = random.Random(f"{session_id}_aws_access")
     chars = string.ascii_uppercase + string.digits
-    suffix = "".join(random.choices(chars, k=16))
+    suffix = "".join(rng.choices(chars, k=16))
     return f"AKIA{suffix}"
 
 
@@ -127,9 +126,9 @@ def generate_aws_secret_key(session_id: str) -> str:
 
     Format: 40 character base64-like string
     """
-    random.seed(f"{session_id}_aws_secret")
+    rng = random.Random(f"{session_id}_aws_secret")
     chars = string.ascii_letters + string.digits + "+/"
-    return "".join(random.choices(chars, k=40))
+    return "".join(rng.choices(chars, k=40))
 
 
 def generate_api_key(session_id: str, service: str = "internal") -> str:
@@ -137,7 +136,7 @@ def generate_api_key(session_id: str, service: str = "internal") -> str:
 
     Format: prefix_base64string (e.g., api_key_xxx, sk_live_xxx)
     """
-    random.seed(f"{session_id}_api_{service}")
+    rng = random.Random(f"{session_id}_api_{service}")
 
     # Different prefixes for different "services"
     prefixes = {
@@ -151,7 +150,7 @@ def generate_api_key(session_id: str, service: str = "internal") -> str:
     prefix = prefixes.get(service, "api_")
 
     chars = string.ascii_letters + string.digits
-    suffix = "".join(random.choices(chars, k=32))
+    suffix = "".join(rng.choices(chars, k=32))
     return f"{prefix}{suffix}"
 
 
@@ -160,21 +159,21 @@ def generate_password(session_id: str, context: str = "default") -> str:
 
     Passwords look human-created (memorable patterns) to be more believable.
     """
-    random.seed(f"{session_id}_password_{context}")
+    rng = random.Random(f"{session_id}_password_{context}")
 
     # Common password patterns that look human-created
     patterns = [
         # Word + numbers + special
-        lambda: f"{random.choice(['Admin', 'User', 'Password', 'Secret', 'Root', 'System', 'Server'])}{random.randint(100, 9999)}{random.choice(['!', '@', '#', '$'])}",
+        lambda: f"{rng.choice(['Admin', 'User', 'Password', 'Secret', 'Root', 'System', 'Server'])}{rng.randint(100, 9999)}{rng.choice(['!', '@', '#', '$'])}",
         # Word + year + special
-        lambda: f"{random.choice(['Summer', 'Winter', 'Spring', 'Fall', 'Company', 'Project'])}{random.randint(2020, 2025)}{random.choice(['!', '@', '#'])}",
+        lambda: f"{rng.choice(['Summer', 'Winter', 'Spring', 'Fall', 'Company', 'Project'])}{rng.randint(2020, 2025)}{rng.choice(['!', '@', '#'])}",
         # CamelCase + numbers
-        lambda: f"{random.choice(['MySecret', 'P@ssw0rd', 'Qwerty', 'Welcome', 'Changeme'])}{random.randint(1, 999)}",
+        lambda: f"{rng.choice(['MySecret', 'P@ssw0rd', 'Qwerty', 'Welcome', 'Changeme'])}{rng.randint(1, 999)}",
         # Keyboard pattern + numbers
-        lambda: f"{random.choice(['Qwerty', 'Asdfgh', 'Zxcvbn'])}{random.randint(100, 999)}{random.choice(['!', '123', '@'])}",
+        lambda: f"{rng.choice(['Qwerty', 'Asdfgh', 'Zxcvbn'])}{rng.randint(100, 999)}{rng.choice(['!', '123', '@'])}",
     ]
 
-    return random.choice(patterns)()
+    return rng.choice(patterns)()
 
 
 def generate_database_password(session_id: str) -> str:
@@ -184,9 +183,9 @@ def generate_database_password(session_id: str) -> str:
 
 def generate_jwt_secret(session_id: str) -> str:
     """Generate a fake JWT secret key."""
-    random.seed(f"{session_id}_jwt")
+    rng = random.Random(f"{session_id}_jwt")
     chars = string.ascii_letters + string.digits
-    return "".join(random.choices(chars, k=64))
+    return "".join(rng.choices(chars, k=64))
 
 
 def generate_github_token(session_id: str) -> str:
@@ -194,9 +193,9 @@ def generate_github_token(session_id: str) -> str:
 
     Format: ghp_ + 36 alphanumeric characters (classic token format)
     """
-    random.seed(f"{session_id}_github")
+    rng = random.Random(f"{session_id}_github")
     chars = string.ascii_letters + string.digits
-    suffix = "".join(random.choices(chars, k=36))
+    suffix = "".join(rng.choices(chars, k=36))
     return f"ghp_{suffix}"
 
 
@@ -205,12 +204,12 @@ def generate_slack_token(session_id: str) -> str:
 
     Format: xoxb- + groups of alphanumeric characters
     """
-    random.seed(f"{session_id}_slack")
+    rng = random.Random(f"{session_id}_slack")
     chars = string.ascii_letters + string.digits
     parts = [
-        "".join(random.choices(chars, k=12)),
-        "".join(random.choices(chars, k=12)),
-        "".join(random.choices(chars, k=24)),
+        "".join(rng.choices(chars, k=12)),
+        "".join(rng.choices(chars, k=12)),
+        "".join(rng.choices(chars, k=24)),
     ]
     return f"xoxb-{'-'.join(parts)}"
 
@@ -220,10 +219,10 @@ def generate_stripe_key(session_id: str, live: bool = True) -> str:
 
     Format: sk_live_ or sk_test_ + 24 alphanumeric characters
     """
-    random.seed(f"{session_id}_stripe")
+    rng = random.Random(f"{session_id}_stripe")
     prefix = "sk_live_" if live else "sk_test_"
     chars = string.ascii_letters + string.digits
-    suffix = "".join(random.choices(chars, k=24))
+    suffix = "".join(rng.choices(chars, k=24))
     return f"{prefix}{suffix}"
 
 
@@ -232,13 +231,13 @@ def generate_ssh_private_key_snippet(session_id: str) -> str:
 
     This looks like a real key but is not valid.
     """
-    random.seed(f"{session_id}_ssh")
+    rng = random.Random(f"{session_id}_ssh")
 
     # Generate fake base64 content
     chars = string.ascii_letters + string.digits + "+/"
     lines = []
     for _ in range(5):
-        lines.append("".join(random.choices(chars, k=64)))
+        lines.append("".join(rng.choices(chars, k=64)))
 
     return f"""-----BEGIN OPENSSH PRIVATE KEY-----
 {lines[0]}
@@ -403,7 +402,19 @@ def check_command_for_token_access(
     command_lower = command.lower()
 
     # Commands that read files
-    read_commands = ["cat", "less", "more", "head", "tail", "grep", "awk", "sed"]
+    read_commands = [
+        "cat",
+        "less",
+        "more",
+        "head",
+        "tail",
+        "grep",
+        "awk",
+        "sed",
+        "strings",
+        "xxd",
+        "hexdump",
+    ]
 
     # Check if any token locations are being accessed
     for token_id, token in honeytokens.tokens.items():

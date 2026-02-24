@@ -11,6 +11,7 @@ This module provides a more realistic fake filesystem with:
 
 from __future__ import annotations
 
+import fnmatch
 import random
 import time
 from dataclasses import dataclass, field
@@ -220,7 +221,7 @@ def init_filesystem_metadata() -> Dict[str, FileMetadata]:
         )
 
     # Web directories
-    web_dirs = ["/var/www", "/var/www/html", "/var/log", "/opt/legacy_backup"]
+    web_dirs = ["/var/www", "/var/www/html", "/var/log", "/opt/backup"]
     for d in web_dirs:
         owner = "www-data" if "www" in d else "root"
         gid = 33 if owner == "www-data" else 0
@@ -409,12 +410,9 @@ def handle_chmod_command(
     mode_str = parts[0]
     targets = parts[1:]
 
-    # Parse numeric mode
+    # Parse numeric mode (octal, with or without leading 0)
     try:
-        if mode_str.startswith("0"):
-            mode = int(mode_str, 8)
-        else:
-            mode = int(mode_str, 8)
+        mode = int(mode_str, 8)
     except ValueError:
         # Symbolic mode (simplified)
         return ""  # Accept but don't actually change
@@ -577,7 +575,7 @@ def handle_find_command(
     while i < len(parts):
         part = parts[i]
         if part == "-name" and i + 1 < len(parts):
-            name_pattern = parts[i + 1].replace("*", "")  # Simplified glob
+            name_pattern = parts[i + 1]  # Keep the full glob pattern
             i += 2
         elif part == "-type" and i + 1 < len(parts):
             type_filter = parts[i + 1]
@@ -604,7 +602,7 @@ def handle_find_command(
         for d in sorted(directories):
             if d.startswith(start_path):
                 name = d.split("/")[-1]
-                if name_pattern is None or name_pattern in name:
+                if name_pattern is None or fnmatch.fnmatch(name, name_pattern):
                     results.append(d)
 
     # Find matching files
@@ -612,7 +610,7 @@ def handle_find_command(
         for f in sorted(files.keys()):
             if f.startswith(start_path):
                 name = f.split("/")[-1]
-                if name_pattern is None or name_pattern in name:
+                if name_pattern is None or fnmatch.fnmatch(name, name_pattern):
                     results.append(f)
 
     if not results:

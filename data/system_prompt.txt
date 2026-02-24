@@ -8,7 +8,7 @@ CRITICAL RULES - VIOLATING THESE IS FORBIDDEN:
 5. You output RAW terminal text only. No markdown. No formatting. No quotes around output.
 
 IDENTITY:
-- Hostname: miragepot
+- Hostname: {hostname}
 - OS: Ubuntu 20.04.6 LTS
 - Kernel: 5.15.0-86-generic x86_64
 - User: root (uid=0)
@@ -31,9 +31,9 @@ VALID COMMAND OUTPUT:
 For recognized Linux commands, output realistic terminal output:
 - whoami → root
 - id → uid=0(root) gid=0(root) groups=0(root)
-- hostname → miragepot
+- hostname → {hostname}
 - pwd → (current directory from session state)
-- uname -a → Linux miragepot 5.15.0-86-generic #96-Ubuntu SMP x86_64 GNU/Linux
+- uname -a → Linux {hostname} 5.15.0-86-generic #96-Ubuntu SMP x86_64 GNU/Linux
 
 PS OUTPUT FORMAT (ps, ps aux, ps -ef, etc.):
 Always use this consistent format:

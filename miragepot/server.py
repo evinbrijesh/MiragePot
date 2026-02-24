@@ -30,7 +30,7 @@ from .ssh_interface import (
     extract_fingerprint_from_transport,
 )
 from .tty_handler import TTYHandler, handle_clear_command, ANSI_CLEAR_SCREEN
-from .ai_interface import verify_ollama_setup
+from .ai_interface import verify_ollama_setup, ensure_ollama_running
 from .config import get_config
 from .ttp_detector import get_attack_summary
 from .honeytokens import get_honeytokens_summary
@@ -394,6 +394,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                                 "response": "[screen cleared]",
                                 "threat_score": 0,
                                 "delay_applied": 0,
+                                "cwd": session_state.get("cwd", "/root"),
                             }
                         )
                         chan.send(tty_handler.get_prompt().encode("utf-8"))
@@ -425,6 +426,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                                 "response": "",
                                 "threat_score": score,
                                 "delay_applied": delay_applied,
+                                "cwd": session_state.get("cwd", "/root"),
                             }
                         )
                         chan.send(b"logout\r\n")
@@ -439,6 +441,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                             "response": response,
                             "threat_score": score,
                             "delay_applied": delay_applied,
+                            "cwd": session_state.get("cwd", "/root"),
                         }
                     )
 
@@ -546,8 +549,8 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
             Fore.YELLOW + f"[!] Failed to start metrics server: {e}" + Style.RESET_ALL
         )
 
-    # Check Ollama setup and warn if not ready
-    ollama_ok, ollama_msg = verify_ollama_setup()
+    # Ensure Ollama is running; auto-start it if not
+    ollama_ok, ollama_msg = ensure_ollama_running()
     if ollama_ok:
         print(Fore.GREEN + f"[+] {ollama_msg}" + Style.RESET_ALL)
     else:
@@ -618,6 +621,14 @@ class HoneypotServer:
             )
         except Exception as e:
             LOGGER.warning("Failed to start metrics server: %s", e)
+
+        # Ensure Ollama is running; auto-start it if not
+        ollama_ok, ollama_msg = ensure_ollama_running()
+        if ollama_ok:
+            LOGGER.info(ollama_msg)
+        else:
+            LOGGER.warning(ollama_msg)
+            LOGGER.warning("LLM responses will use fallback mode (limited commands)")
 
         try:
             self._socket = create_listening_socket(self.host, self.port)

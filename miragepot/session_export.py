@@ -19,6 +19,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterator, List, Optional
 
+from .config import get_config
+
 
 @dataclass
 class SessionCommand:
@@ -29,6 +31,7 @@ class SessionCommand:
     response: str
     threat_score: int
     delay_applied: float
+    cwd: str = "/root"
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "SessionCommand":
@@ -39,6 +42,7 @@ class SessionCommand:
             response=data.get("response", ""),
             threat_score=data.get("threat_score", 0),
             delay_applied=data.get("delay_applied", 0.0),
+            cwd=data.get("cwd", "/root"),
         )
 
 
@@ -106,6 +110,7 @@ class SessionData:
                     "response": cmd.response,
                     "threat_score": cmd.threat_score,
                     "delay_applied": cmd.delay_applied,
+                    "cwd": cmd.cwd,
                 }
                 for cmd in self.commands
             ],
@@ -182,7 +187,8 @@ def export_as_text(session: SessionData, include_metadata: bool = True) -> str:
             if "T" in cmd.timestamp
             else cmd.timestamp
         )
-        lines.append(f"[{time_str}] root@miragepot:~# {cmd.command}")
+        hostname = get_config().honeypot.hostname
+        lines.append(f"[{time_str}] root@{hostname}:{cmd.cwd}# {cmd.command}")
 
         # Show response (indented)
         if cmd.response:
@@ -360,7 +366,9 @@ def export_as_html(session: SessionData) -> str:
         html_parts.append(
             f"      <span class='timestamp'>[{escape_html(time_str)}]</span>"
         )
-        html_parts.append(f"      <span class='prompt'>root@miragepot:~#</span>")
+        html_parts.append(
+            f"      <span class='prompt'>root@{get_config().honeypot.hostname}:{escape_html(cmd.cwd)}#</span>"
+        )
         html_parts.append(
             f"      <span class='cmd-text'>{escape_html(cmd.command)}</span>"
         )
@@ -430,7 +438,7 @@ def replay_session(
         prev_time = cmd.timestamp
 
         # Output prompt
-        output_callback("root@miragepot:~# ")
+        output_callback(f"root@{get_config().honeypot.hostname}:{cmd.cwd}# ")
 
         # Simulate typing if enabled
         if simulate_typing:
@@ -495,7 +503,7 @@ def iter_replay_session(
 
         yield {
             "type": "prompt",
-            "content": "root@miragepot:~# ",
+            "content": f"root@{get_config().honeypot.hostname}:{cmd.cwd}# ",
             "delay": delay,
         }
 

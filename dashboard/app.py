@@ -17,6 +17,7 @@ Author: Evin Brijesh
 from __future__ import annotations
 
 import json
+import os
 import time
 import re
 import hashlib
@@ -52,8 +53,9 @@ LIVE_SESSION_FILE = BASE_DIR / "data" / "live_sessions.json"
 ATTACK_STAGES = [
     ("reconnaissance", "Recon", "#3498db"),
     ("credential_access", "Cred Access", "#9b59b6"),
+    ("execution", "Execution", "#e74c3c"),
     ("privilege_escalation", "PrivEsc", "#e67e22"),
-    ("persistence", "Persistence", "#e74c3c"),
+    ("persistence", "Persistence", "#c0392b"),
     ("defense_evasion", "Defense Evasion", "#95a5a6"),
     ("lateral_movement", "Lateral", "#1abc9c"),
     ("collection", "Collection", "#f39c12"),
@@ -410,7 +412,10 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
             logout_time = sess.get("logout_time")
             if login_time and not logout_time:
                 active.append(sess)
-            elif login_time and login_time.replace(tzinfo=None) > recent_cutoff:
+            elif (
+                login_time
+                and login_time.astimezone(None).replace(tzinfo=None) > recent_cutoff
+            ):
                 active.append(sess)
 
         live_sessions = active[:5]
@@ -1334,6 +1339,21 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="expanded",
     )
+
+    # ---- Authentication gate (set MIRAGEPOT_DASHBOARD_PASSWORD in .env to enable) ----
+    required_password = os.environ.get("MIRAGEPOT_DASHBOARD_PASSWORD", "")
+    if required_password:
+        if not st.session_state.get("_auth_ok"):
+            st.title("MiragePot Dashboard — Login")
+            entered = st.text_input("Password", type="password", key="_auth_input")
+            if st.button("Login"):
+                if entered == required_password:
+                    st.session_state["_auth_ok"] = True
+                    st.rerun()
+                else:
+                    st.error("Incorrect password.")
+            st.stop()
+    # ---- End authentication gate ----
 
     # Custom CSS for dark theme
     st.markdown(

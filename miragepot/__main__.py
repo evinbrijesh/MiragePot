@@ -475,7 +475,7 @@ For more information, visit: https://github.com/evinbrijesh/MiragePot
                 dashboard_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 dashboard_proc.kill()
-        sys.exit(0)
+        raise KeyboardInterrupt
 
     signal.signal(signal.SIGINT, signal_handler)
     signal.signal(signal.SIGTERM, signal_handler)

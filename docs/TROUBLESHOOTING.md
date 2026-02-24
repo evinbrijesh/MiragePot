@@ -171,7 +171,7 @@ docker exec miragepot-ollama ollama list
 docker restart miragepot-ollama
 
 # Use a smaller model (edit .env.docker)
-OLLAMA_MODEL=phi3:mini
+MIRAGEPOT_LLM_MODEL=phi3:mini
 
 # Check system resources
 docker stats
@@ -192,7 +192,7 @@ docker stats
 
 # Solutions:
 # 1. Use smaller model (phi3:mini ~1GB instead of ~2GB)
-OLLAMA_MODEL=phi3:mini
+MIRAGEPOT_LLM_MODEL=phi3:mini
 
 # 2. Add memory limits to docker-compose.yml
 services:

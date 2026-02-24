@@ -104,11 +104,21 @@ miragepot/
 ├── __init__.py          # Package initialization
 ├── __main__.py          # CLI entry point
 ├── config.py            # Configuration management
-├── server.py            # Main SSH server
-├── ssh_interface.py     # SSH protocol handling
-├── command_handler.py   # Command processing
-├── ai_interface.py      # LLM integration
-└── defense_module.py    # Threat detection
+├── server.py            # Main SSH server orchestrator
+├── ssh_interface.py     # SSH protocol handling (Paramiko)
+├── command_handler.py   # Hybrid command processing engine
+├── ai_interface.py      # LLM integration (Ollama)
+├── defense_module.py    # Threat scoring and tarpit delays
+├── ttp_detector.py      # MITRE ATT&CK TTP detection
+├── honeytokens.py       # Honeytoken generation and detection
+├── filesystem.py        # Virtual filesystem operations
+├── system_state.py      # Simulated system state (users, services)
+├── tty_handler.py       # TTY input, line editing, tab completion
+├── response_validator.py # LLM response validation and sanitization
+├── download_capture.py  # Download attempt parsing and logging
+├── rate_limiter.py      # Connection rate limiting
+├── metrics.py           # Prometheus metrics exporter
+└── session_export.py    # Session log export (text, JSON, HTML)
 ```
 
 #### Testing Guidelines
@@ -133,7 +143,7 @@ We especially welcome contributions in these areas:
 
 - **Command responses**: Expand `data/cache.json` with more realistic outputs
 - **LLM prompts**: Improve prompt engineering for better responses
-- **Defense rules**: Add threat detection patterns in `defense_module.py`
+- **Defense rules**: Add threat detection patterns in `defense_module.py` and `ttp_detector.py`
 - **Documentation**: Improve docs, add examples, fix typos
 - **Tests**: Increase test coverage
 - **Dashboard**: Add visualizations and analytics features
