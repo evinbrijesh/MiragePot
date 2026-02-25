@@ -6,6 +6,7 @@ Complete guide for deploying MiragePot using Docker, including configuration, se
 
 - [Architecture Overview](#architecture-overview)
 - [Deployment Options](#deployment-options)
+- [Choosing a Run Mode](#choosing-a-run-mode)
 - [Pre-Deployment Setup](#pre-deployment-setup)
 - [Simple Stack Deployment](#simple-stack-deployment)
 - [Full Stack Deployment](#full-stack-deployment)
@@ -86,6 +87,61 @@ Complete guide for deploying MiragePot using Docker, including configuration, se
 | **Alertmanager** | ❌ | ✅ |
 | **RAM Usage** | ~2-3GB | ~4-5GB |
 | **Disk Usage** | ~3GB | ~5GB |
+
+---
+
+## Choosing a Run Mode
+
+MiragePot can be started in three ways. Choose based on your use case:
+
+### `python run.py` — Local Development
+
+```bash
+python run.py
+```
+
+**Starts:** SSH honeypot + Streamlit dashboard only.
+
+**Requires:** Ollama already installed and running on your machine (`ollama serve`), with the phi3 model pulled (`ollama pull phi3`).
+
+**Does NOT include:** Grafana, Prometheus UI, Alertmanager, or any container isolation.
+
+**Use when:** You are actively developing or testing MiragePot locally and want a quick start without Docker.
+
+---
+
+### `docker-compose-simple.yml` — Simple Docker Stack
+
+```bash
+docker compose -f docker-compose-simple.yml up -d
+```
+
+**Starts:** SSH honeypot + Ollama + Streamlit dashboard (3 containers).
+
+**Requires:** Docker only. Ollama and the phi3 model are managed automatically.
+
+**Does NOT include:** Grafana, Prometheus UI, or Alertmanager.
+
+**Use when:** You want a self-contained deployment without the overhead of the full monitoring stack, or your machine has limited RAM (~3GB available).
+
+---
+
+### `docker/docker-compose.yml` — Full Stack (Recommended for Production)
+
+```bash
+cd docker/
+docker compose up -d
+```
+
+**Starts:** SSH honeypot + Ollama + Streamlit dashboard + Prometheus + Grafana + Alertmanager (5 containers).
+
+**Requires:** Docker only. Everything is managed automatically.
+
+**Includes everything:** Full monitoring dashboards, metric retention, alert routing (email/Slack/Discord).
+
+**Use when:** You are running MiragePot in a production or research environment and want the complete observability stack.
+
+> **Note:** The full stack requires ~4–5GB RAM and ~5GB disk. See [System Requirements](#1-system-requirements) below.
 
 ---
 
@@ -207,7 +263,38 @@ Best for: Production use, full monitoring, threat analysis, alerting.
 # Or manually
 cd docker/
 docker compose up -d
-docker exec miragepot-ollama ollama pull phi3
+```
+
+> **Note:** The Phi-3 model (~2GB) is downloaded automatically by Ollama on first run. You no longer need to run `ollama pull phi3` manually.
+
+### Startup Order
+
+The containers start in a fixed dependency chain — Docker's health checks enforce this automatically:
+
+```
+1. Ollama         → starts first, downloads phi3 model (~2–5 min on first run)
+       ↓ (waits until healthy)
+2. MiragePot      → starts after Ollama is confirmed healthy
+       ↓
+3. Prometheus     → starts after MiragePot
+       ↓
+4. Alertmanager   → starts after Prometheus
+5. Grafana        → starts after Prometheus
+```
+
+On **first run**, expect 2–5 minutes before everything is fully up due to the model download. On subsequent runs, startup takes ~30 seconds.
+
+To watch the startup progress:
+
+```bash
+# Watch Ollama download the model
+docker compose logs -f ollama
+
+# Watch all containers together
+docker compose logs -f
+
+# Check when all containers reach healthy status
+docker compose ps
 ```
 
 ### Verify

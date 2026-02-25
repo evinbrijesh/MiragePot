@@ -16,9 +16,11 @@ Metrics exposed:
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timedelta
+from importlib.metadata import version as _pkg_version, PackageNotFoundError
 from pathlib import Path
 from threading import Lock
 from typing import Dict, List, Optional
@@ -182,11 +184,18 @@ class MetricsCollector:
         self._unique_creds: set = set()
         self._country_codes: Dict[str, int] = defaultdict(int)
 
+        # Resolve version dynamically from package metadata so it always
+        # matches pyproject.toml, with a safe fallback for dev installs.
+        try:
+            _version = _pkg_version("miragepot")
+        except PackageNotFoundError:
+            _version = "dev"
+
         # Initialize system info
         system_info.info(
             {
-                "version": "1.0.0",
-                "python_version": "3.11",
+                "version": _version,
+                "python_version": f"{sys.version_info.major}.{sys.version_info.minor}",
                 "mode": "production",
             }
         )

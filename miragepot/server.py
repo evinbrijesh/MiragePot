@@ -14,6 +14,7 @@ import logging
 import socket
 import threading
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -40,16 +41,20 @@ from .metrics import get_metrics_collector, start_metrics_server
 # Initialize color output for local console
 colorama_init(autoreset=True)
 
-# Basic logging configuration for server events (not session commands)
+# Basic logging configuration — level is read from config/env (MIRAGEPOT_LOG_LEVEL)
+_log_level_str = get_config().logging.level.upper()
+_log_level = getattr(logging, _log_level_str, logging.INFO)
 logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for enhanced diagnostics
+    level=_log_level,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 LOGGER = logging.getLogger(__name__)
 
-# Enable Paramiko debug logging for SSH handshake diagnostics
+# Suppress Paramiko's noisy transport-level debug output unless explicitly in DEBUG mode
 paramiko_logger = logging.getLogger("paramiko")
-paramiko_logger.setLevel(logging.DEBUG)
+paramiko_logger.setLevel(
+    logging.WARNING if _log_level > logging.DEBUG else logging.DEBUG
+)
 
 # Directories for logs
 config = get_config()
@@ -246,8 +251,6 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
             exc,
         )
         LOGGER.error("SSH negotiation FAILED - Exception type: %s", type(exc).__name__)
-        import traceback
-
         LOGGER.error(
             "SSH negotiation FAILED - Full traceback:\n%s", traceback.format_exc()
         )
@@ -263,8 +266,6 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
             attacker_port,
             exc,
         )
-        import traceback
-
         LOGGER.error("Unexpected error - Full traceback:\n%s", traceback.format_exc())
         metrics.record_connection_attempt("failed")
         metrics.decrement_active_connections()
@@ -313,10 +314,10 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     # Record session start
     metrics.record_session_start()
 
-    # Log credentials for forensics (configurable for security)
+    # Log credentials for forensics (only when explicitly enabled in config)
     security_config = config.security
     if server.successful_username:
-        if security_config.log_passwords or LOGGER.level <= logging.DEBUG:
+        if security_config.log_passwords:
             LOGGER.info(
                 "Attacker %s logged in as '%s' with password '%s'",
                 attacker_ip,
@@ -331,12 +332,16 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     # Initialize TTY handler for realistic terminal emulation
     tty_handler = TTYHandler(
         session_state=session_state,
-        hostname="miragepot",
+        hostname=config.honeypot.hostname,
         username=server.successful_username or "root",
     )
 
     # Send fake banner and initial prompt (use CRLF for terminals)
-    chan.send(b"Welcome to Ubuntu 20.04.6 LTS (GNU/Linux 5.15.0-86-generic x86_64)\r\n")
+    os_banner = (
+        f"Welcome to {config.honeypot.os_name} {config.honeypot.os_version} "
+        f"(GNU/Linux {config.honeypot.kernel_version} x86_64)"
+    )
+    chan.send((os_banner + "\r\n").encode("utf-8"))
     chan.send(b"Last login: just now from unknown\r\n")
     chan.send(tty_handler.get_prompt().encode("utf-8"))
 
