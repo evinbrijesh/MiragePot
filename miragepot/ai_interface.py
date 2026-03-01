@@ -10,6 +10,7 @@ and graceful fallback when Ollama is unavailable.
 
 from __future__ import annotations
 
+import concurrent.futures
 import json
 import logging
 import subprocess
@@ -393,17 +394,21 @@ def query_llm(
 
     start_time = time.time()
     try:
-        response = ollama.chat(
-            model=_get_model(),
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            options={
-                "temperature": 0.7,
-                "num_predict": 512,  # Limit response length
-            },
-        )
+        cfg = get_config().llm
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                ollama.chat,
+                model=_get_model(),
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                options={
+                    "temperature": cfg.temperature,
+                    "num_predict": cfg.max_tokens,
+                },
+            )
+            response = future.result(timeout=cfg.timeout)
         latency = time.time() - start_time
         content = response.get("message", {}).get("content", "")
 

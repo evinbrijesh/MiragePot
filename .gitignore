@@ -33,6 +33,7 @@ env/
 .env.*
 !.env.example
 !.env.docker.example
+.env.docker
 
 # IDE
 .idea/

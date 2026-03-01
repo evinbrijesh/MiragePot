@@ -37,7 +37,8 @@ RUN pip install --no-cache-dir -r requirements.txt && \
 # Copy application code
 COPY miragepot/ ./miragepot/
 COPY dashboard/ ./dashboard/
-COPY data/ ./data/
+COPY data/system_prompt.txt ./data/
+COPY data/cache.json ./data/
 COPY run.py ./
 
 # Create necessary directories and transfer ownership to non-root user

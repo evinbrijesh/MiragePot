@@ -20,6 +20,11 @@ services:
       - ollama-data:/root/.ollama
     networks:
       - miragepot-net
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: "4.0"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
       interval: 30s
@@ -36,8 +41,8 @@ services:
     restart: unless-stopped
     ports:
       - "2222:2222"   # SSH honeypot (change to 22:2222 for standard SSH port)
-      - "8501:8501"   # Streamlit dashboard (localhost only recommended)
-      - "9090:9090"   # Prometheus metrics endpoint
+      - "127.0.0.1:8501:8501"   # Streamlit dashboard (localhost only recommended)
+      - "127.0.0.1:9090:9090"   # Prometheus metrics endpoint
     volumes:
       - ./data/logs:/app/data/logs
       - ./data/cache.json:/app/data/cache.json
@@ -52,6 +57,17 @@ services:
       - ollama
     networks:
       - miragepot-net
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2222)); s.close()"]
       interval: 30s

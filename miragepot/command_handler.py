@@ -17,6 +17,7 @@ The session_state dict (per connection) has the following structure:
 from __future__ import annotations
 
 import json
+import logging
 import re
 import unicodedata
 from pathlib import Path
@@ -80,6 +81,8 @@ from .config import get_config
 
 DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CACHE_PATH = DATA_DIR / "cache.json"
+
+LOGGER = logging.getLogger(__name__)
 
 
 # Known valid Linux commands (subset) - commands that exist on a typical system
@@ -2281,8 +2284,11 @@ def _has_suspicious_encoding(command: str) -> bool:
             ]
             if any(kw in decoded for kw in injection_keywords):
                 return True
-        except Exception:
-            pass
+        except Exception as exc:
+            LOGGER.warning(
+                "Unicode injection check failed, treating as suspicious: %s", exc
+            )
+            return True  # fail closed — safer than fail open
 
     # Check for excessive unicode characters (potential homoglyph attack)
     non_ascii_count = sum(1 for c in command if ord(c) > 127)
