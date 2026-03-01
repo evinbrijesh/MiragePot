@@ -753,9 +753,10 @@ def handle_who_command(sys_state: SystemState) -> str:
     return format_who(sys_state)
 
 
-def handle_id_command(args: str = "") -> str:
+def handle_id_command(args: str = "", state: Optional[Dict[str, Any]] = None) -> str:
     """Handle id command."""
-    username = args.strip() if args.strip() else "root"
+    session_user = state.get("username", "root") if state else "root"
+    username = args.strip() if args.strip() else session_user
     return format_id(username)
 
 
@@ -769,8 +770,10 @@ def handle_uname_command(args: str = "") -> str:
     return format_uname(args.strip())
 
 
-def handle_whoami_command() -> str:
-    """Handle whoami command."""
+def handle_whoami_command(state: Optional[Dict[str, Any]] = None) -> str:
+    """Handle whoami command — returns the username the attacker logged in with."""
+    if state:
+        return state.get("username", "root") + "\n"
     return "root\n"
 
 

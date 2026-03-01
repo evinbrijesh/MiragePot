@@ -310,11 +310,9 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     session_log["auth"] = server.get_auth_summary()
     session_log["pty_info"] = server.pty_info
 
-    # Record authentication metrics
-    if server.successful_username:
-        metrics.record_auth_attempt(
-            server.successful_username, server.successful_password or ""
-        )
+    # Record authentication metrics for ALL attempts (success + failure)
+    for attempt in server.auth_attempts:
+        metrics.record_auth_attempt(attempt.username, attempt.credential or "")
 
     # Record session start
     metrics.record_session_start()
@@ -333,6 +331,9 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
             )
 
     chan.settimeout(300)
+
+    # Store username in session_state so command handlers can access it
+    session_state["username"] = server.successful_username or "root"
 
     # Initialize TTY handler for realistic terminal emulation
     tty_handler = TTYHandler(

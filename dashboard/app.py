@@ -47,7 +47,7 @@ GEOIP_AVAILABLE = True  # Always available via IP-API fallback
 BASE_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = BASE_DIR / "data" / "logs"
 TAGS_FILE = BASE_DIR / "data" / "session_tags.json"
-LIVE_SESSION_FILE = BASE_DIR / "data" / "live_sessions.json"
+LIVE_SESSION_FILE = BASE_DIR / "data" / "logs" / "live_sessions.json"
 
 # Attack stages for TTP visualization
 ATTACK_STAGES = [
@@ -1420,8 +1420,19 @@ def main() -> None:
         st.rerun()
 
     if auto_refresh:
-        time.sleep(refresh_interval)
-        st.rerun()
+        # Use st.empty() + a short script to trigger rerun after the interval
+        # without blocking the Streamlit UI thread
+        import streamlit.components.v1 as components
+
+        components.html(
+            f"""<script>
+            setTimeout(function() {{
+                window.parent.document.querySelector('button[kind="header"]') ||
+                window.parent.location.reload();
+            }}, {refresh_interval * 1000});
+            </script>""",
+            height=0,
+        )
 
     # Load data
     sessions = load_session_logs()

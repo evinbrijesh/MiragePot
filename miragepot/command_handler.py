@@ -2194,7 +2194,7 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
 
     if stripped.startswith("id"):
         args = stripped[2:].strip()
-        return True, handle_id_command(args)
+        return True, handle_id_command(args, state)
 
     if stripped == "hostname":
         return True, handle_hostname_command()
@@ -2204,7 +2204,7 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
         return True, handle_uname_command(args)
 
     if stripped == "whoami":
-        return True, handle_whoami_command()
+        return True, handle_whoami_command(state)
 
     # Download command handlers (wget, curl, scp, tftp, ftp, rsync)
     if is_download_command(stripped):
