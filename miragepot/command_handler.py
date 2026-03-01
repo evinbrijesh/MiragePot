@@ -457,7 +457,7 @@ def _load_cache() -> Dict[str, str]:
         raw = CACHE_PATH.read_text(encoding="utf-8")
         if not raw.strip():
             return {}
-        return json.loads(raw)
+        return cast(Dict[str, str], json.loads(raw))
     except Exception:
         return {}
 
@@ -1559,7 +1559,7 @@ def _handle_cd(args: str, state: Dict[str, Any]) -> str:
 
 
 def _handle_pwd(state: Dict[str, Any]) -> str:
-    return state.get("cwd", "/root") + "\n"
+    return cast(str, state.get("cwd", "/root")) + "\n"
 
 
 def _handle_mkdir(args: str, state: Dict[str, Any]) -> str:
@@ -2486,7 +2486,7 @@ def _handle_interactive_command(command: str, state: Dict[str, Any]) -> Optional
         if filepath not in files:
             return f"{cmd}: {filename}: No such file or directory\n"
         # Would show file content in pager - just return content
-        return files[filepath]
+        return cast(str, files[filepath])
 
     if cmd in ("top", "htop"):
         # These are interactive - in non-interactive context, return snapshot

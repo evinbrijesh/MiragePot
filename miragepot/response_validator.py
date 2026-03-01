@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 from .config import get_config
 
@@ -449,7 +449,7 @@ def _generate_safe_fallback(command: str, session_state: Dict[str, Any]) -> str:
     }
 
     if base_cmd in fallbacks:
-        return fallbacks[base_cmd]
+        return cast(str, fallbacks[base_cmd])
 
     # For unknown commands, return command not found
     return f"bash: {base_cmd}: command not found\n"

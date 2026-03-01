@@ -17,7 +17,7 @@ import time
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, cast
 
 import paramiko
 from colorama import Fore, Style, init as colorama_init
@@ -78,7 +78,7 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
     try:
         with _live_sessions_lock:
             # Load existing live sessions
-            live_data = {"sessions": [], "last_updated": ""}
+            live_data: Dict[str, Any] = {"sessions": [], "last_updated": ""}
             if LIVE_SESSIONS_FILE.exists():
                 try:
                     live_data = json.loads(
@@ -90,8 +90,10 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
                         parse_exc,
                     )
 
-            sessions = live_data.get("sessions", [])
-            session_id = session_log.get("session_id", "")
+            sessions: List[Dict[str, Any]] = cast(
+                List[Dict[str, Any]], live_data.get("sessions", [])
+            )
+            session_id = cast(str, session_log.get("session_id", ""))
 
             # Remove existing entry for this session
             sessions = [s for s in sessions if s.get("session_id") != session_id]

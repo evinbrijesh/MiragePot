@@ -16,7 +16,7 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 from .response_validator import validate_response, sanitize_for_terminal
 from .metrics import get_metrics_collector
@@ -410,7 +410,7 @@ def query_llm(
             )
             response = future.result(timeout=cfg.timeout)
         latency = time.time() - start_time
-        content = response.get("message", {}).get("content", "")
+        content: str = cast(str, response.get("message", {}).get("content", ""))
 
         # Record successful LLM request
         metrics.record_llm_request(_get_model(), "success", latency)

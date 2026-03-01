@@ -11,9 +11,15 @@ import logging
 import socket
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, cast
 
 import paramiko
+from paramiko.common import (
+    AUTH_FAILED,
+    AUTH_SUCCESSFUL,
+    OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED,
+    OPEN_SUCCEEDED,
+)
 
 LOGGER = logging.getLogger(__name__)
 
@@ -155,8 +161,8 @@ class SSHServer(paramiko.ServerInterface):
 
     def check_channel_request(self, kind: str, chanid: int) -> int:
         if kind == "session":
-            return paramiko.OPEN_SUCCEEDED
-        return paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+            return OPEN_SUCCEEDED
+        return OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_auth_password(self, username: str, password: str) -> int:
         """Accept any password and record the attempt for forensics."""
@@ -176,7 +182,7 @@ class SSHServer(paramiko.ServerInterface):
         self.successful_password = password
 
         LOGGER.info("Auth attempt: user=%s (accepted)", username)
-        return paramiko.AUTH_SUCCESSFUL
+        return AUTH_SUCCESSFUL
 
     def check_auth_publickey(self, username: str, key: paramiko.PKey) -> int:
         """Reject public key auth but record the attempt."""
@@ -199,7 +205,7 @@ class SSHServer(paramiko.ServerInterface):
 
         LOGGER.info("Auth attempt: user=%s pubkey=%s (rejected)", username, key_fp[:16])
         # Reject public key auth to force password auth (more intel)
-        return paramiko.AUTH_FAILED
+        return AUTH_FAILED
 
     def get_allowed_auths(self, username: str) -> str:
         return "password,publickey"

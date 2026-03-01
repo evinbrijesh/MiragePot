@@ -31,7 +31,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from .config import get_config
 
@@ -442,7 +442,7 @@ For more information, visit: https://github.com/evinbrijesh/MiragePot
         if args.sessions_command is None:
             sessions_parser.print_help()
             return 0
-        return args.func(args)
+        return cast(int, args.func(args))
 
     # Default: run the honeypot server
     # Load config (picks up environment variables)
