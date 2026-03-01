@@ -12,6 +12,69 @@ if [[ ! -f "docker/docker-compose.yml" ]]; then
     exit 1
 fi
 
+# ── Check for Docker ────────────────────────────────────────────────
+if ! command -v docker &>/dev/null; then
+    echo ""
+    echo "ERROR: Docker is not installed."
+    echo ""
+    OS="$(uname -s)"
+    if [[ "$OS" == "Linux" ]]; then
+        echo "  Docker can be installed automatically using the official install script."
+        echo "  Source: https://get.docker.com"
+        echo ""
+        read -r -p "  Install Docker now? [y/N] " REPLY
+        echo ""
+        if [[ "$REPLY" =~ ^[Yy]$ ]]; then
+            echo "  Downloading and running Docker install script..."
+            if curl -fsSL https://get.docker.com -o /tmp/get-docker.sh; then
+                sh /tmp/get-docker.sh
+                rm -f /tmp/get-docker.sh
+                # Add current user to docker group so they don't need sudo
+                if ! id -nG "$USER" | grep -qw docker; then
+                    echo ""
+                    echo "  Adding $USER to the 'docker' group..."
+                    usermod -aG docker "$USER" 2>/dev/null || true
+                fi
+                echo ""
+                echo "  Docker installed successfully."
+                echo ""
+                # newgrp would drop us back to a subshell; instruct user to re-login instead
+                echo "  NOTE: You may need to log out and back in (or run 'newgrp docker')"
+                echo "        before running Docker as a non-root user."
+                echo "        Then re-run: ./start.sh"
+                echo ""
+            else
+                echo "  ERROR: Failed to download the Docker install script."
+                echo "         Check your internet connection or install Docker manually:"
+                echo "         https://docs.docker.com/engine/install/"
+            fi
+            exit 1
+        else
+            echo "  Install Docker manually and re-run this script:"
+            echo "  https://docs.docker.com/engine/install/"
+            exit 1
+        fi
+    elif [[ "$OS" == "Darwin" ]]; then
+        echo "  Install Docker Desktop for Mac and re-run this script:"
+        echo "  https://docs.docker.com/desktop/install/mac-install/"
+        exit 1
+    else
+        echo "  Install Docker for your platform and re-run this script:"
+        echo "  https://docs.docker.com/engine/install/"
+        exit 1
+    fi
+fi
+
+# ── Check for Docker Compose ────────────────────────────────────────
+if ! docker compose version &>/dev/null 2>&1; then
+    echo ""
+    echo "ERROR: Docker Compose plugin is not available."
+    echo "       It is bundled with Docker Desktop and Docker Engine >= 20.10."
+    echo "       Install or update Docker: https://docs.docker.com/engine/install/"
+    echo ""
+    exit 1
+fi
+
 # ── Ensure .env.docker exists ───────────────────────────────────────
 if [[ ! -f ".env.docker" ]]; then
     if [[ -f ".env.docker.example" ]]; then
