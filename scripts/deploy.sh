@@ -327,7 +327,7 @@ ${GREEN}${BOLD}Full stack is now running!${NC}
 ${BOLD}Access Points:${NC}
   ${CYAN}SSH Honeypot:${NC}        ssh root@localhost -p 2222 (any password)
   ${CYAN}Streamlit Dashboard:${NC}  http://localhost:8501
-  ${CYAN}Grafana:${NC}              http://localhost:3000 (admin/admin)
+  ${CYAN}Grafana:${NC}              http://localhost:3000 (password from GRAFANA_ADMIN_PASSWORD in .env.docker)
   ${CYAN}Prometheus:${NC}           http://localhost:9091
   ${CYAN}Alertmanager:${NC}         http://localhost:9093
 
@@ -342,7 +342,7 @@ ${BOLD}Session Logs:${NC}
   Format: JSON (one file per session)
 
 ${BOLD}Next Steps:${NC}
-  1. ${YELLOW}Change Grafana password:${NC} http://localhost:3000 (admin/admin)
+  1. ${YELLOW}Change Grafana password:${NC} http://localhost:3000 (set GRAFANA_ADMIN_PASSWORD in .env.docker)
   2. ${YELLOW}Import dashboards:${NC} Run ./scripts/setup-grafana-dashboards.sh
   3. ${YELLOW}Configure alerts:${NC} Edit .env.docker for email/Slack/Discord
 

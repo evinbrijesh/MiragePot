@@ -12,6 +12,13 @@ services:
     entrypoint: ["/bin/bash", "/entrypoint-ollama.sh"]
     networks:
       - miragepot-net
+    deploy:
+      resources:
+        limits:
+          memory: 6g
+          cpus: "4.0"
+        reservations:
+          memory: 2g
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 30s
@@ -32,8 +39,8 @@ services:
       - "9090:9090"   # Metrics endpoint
     volumes:
       - ../data/logs:/app/data/logs
-      - ../data/cache.json:/app/data/cache.json
-      - ../data/system_prompt.txt:/app/data/system_prompt.txt
+      - ../data/cache.json:/app/data/cache.json:ro
+      - ../data/system_prompt.txt:/app/data/system_prompt.txt:ro
     env_file:
       - ../.env.docker
     environment:
@@ -45,6 +52,19 @@ services:
         condition: service_healthy
     networks:
       - miragepot-net
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "1.0"
+        reservations:
+          memory: 128m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
     healthcheck:
       test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2222)); s.close()"]
       interval: 30s
@@ -60,8 +80,8 @@ services:
     ports:
       - "9091:9090"   # Prometheus UI
     volumes:
-      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro
       - prometheus-data:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -73,6 +93,21 @@ services:
       - miragepot-net
     depends_on:
       - miragepot
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
 
   # Alertmanager for notifications
   alertmanager:
@@ -82,7 +117,7 @@ services:
     ports:
       - "9093:9093"   # Alertmanager UI
     volumes:
-      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ./prometheus/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
       - alertmanager-data:/alertmanager
     command:
       - '--config.file=/etc/alertmanager/alertmanager.yml'
@@ -91,6 +126,21 @@ services:
       - miragepot-net
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 128m
+          cpus: "0.25"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
 
   # Grafana dashboards
   grafana:
@@ -100,18 +150,36 @@ services:
     ports:
       - "3000:3000"   # Grafana UI
     volumes:
-      - ../grafana/provisioning:/etc/grafana/provisioning
-      - ../grafana/dashboards:/var/lib/grafana/dashboards
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env.docker}
       - GF_USERS_ALLOW_SIGN_UP=false
       - GF_SERVER_ROOT_URL=http://localhost:3000
       - GF_INSTALL_PLUGINS=grafana-worldmap-panel,grafana-piechart-panel
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
     networks:
       - miragepot-net
     depends_on:
       - prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: "0.5"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
 networks:
   miragepot-net:
@@ -126,3 +194,4 @@ volumes:
     driver: local
   grafana-data:
     driver: local
+

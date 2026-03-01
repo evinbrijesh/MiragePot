@@ -21,6 +21,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# Create non-root user for running the application
+RUN groupadd -r miragepot && useradd -r -g miragepot -u 1000 -d /app -s /sbin/nologin miragepot
+
 # Create app directory
 WORKDIR /app
 
@@ -37,9 +40,12 @@ COPY dashboard/ ./dashboard/
 COPY data/ ./data/
 COPY run.py ./
 
-# Create necessary directories
+# Create necessary directories and transfer ownership to non-root user
 RUN mkdir -p /app/data/logs && \
-    chmod 755 /app/data/logs
+    chown -R miragepot:miragepot /app
+
+# Switch to non-root user
+USER miragepot
 
 # Expose ports
 EXPOSE 2222 8501 9090

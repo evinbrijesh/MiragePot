@@ -33,8 +33,11 @@ SYSTEM_PROMPT_PATH = DATA_DIR / "system_prompt.txt"
 
 LOGGER = logging.getLogger(__name__)
 
-# Default model name; can be adjusted if needed.
-LLM_MODEL = "phi3"
+
+def _get_model() -> str:
+    """Return the configured LLM model name, reading from config/env at call time."""
+    return get_config().llm.model
+
 
 # Connection state
 _ollama_verified = False
@@ -117,22 +120,22 @@ def check_ollama_connection() -> bool:
                 full_model_names.append(name)
 
         if (
-            LLM_MODEL not in model_names
-            and f"{LLM_MODEL}:latest" not in full_model_names
+            _get_model() not in model_names
+            and f"{_get_model()}:latest" not in full_model_names
         ):
             LOGGER.warning(
                 "Model '%s' not found in Ollama. Available models: %s. "
                 "Run 'ollama pull %s' to download it.",
-                LLM_MODEL,
+                _get_model(),
                 model_names,
-                LLM_MODEL,
+                _get_model(),
             )
             # Still mark as verified - we'll try anyway and let ollama auto-pull if configured
             _ollama_verified = True
             return True
 
         _ollama_verified = True
-        LOGGER.info("Ollama connection verified, model '%s' available", LLM_MODEL)
+        LOGGER.info("Ollama connection verified, model '%s' available", _get_model())
         return True
 
     except Exception as exc:
@@ -391,7 +394,7 @@ def query_llm(
     start_time = time.time()
     try:
         response = ollama.chat(
-            model=LLM_MODEL,
+            model=_get_model(),
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
@@ -405,7 +408,7 @@ def query_llm(
         content = response.get("message", {}).get("content", "")
 
         # Record successful LLM request
-        metrics.record_llm_request(LLM_MODEL, "success", latency)
+        metrics.record_llm_request(_get_model(), "success", latency)
 
         # Clean up the response using basic cleaning first
         content = _clean_llm_response(content, command)
@@ -443,7 +446,7 @@ def query_llm(
         LOGGER.error("Error querying LLM for command '%s': %s", command, exc)
 
         # Record failed LLM request
-        metrics.record_llm_request(LLM_MODEL, "error", latency)
+        metrics.record_llm_request(_get_model(), "error", latency)
 
         # Mark connection as failed so we don't keep retrying
         global _ollama_verified
@@ -620,18 +623,18 @@ def verify_ollama_setup() -> tuple[bool, str]:
 
         # Check for our model (with or without :latest suffix)
         model_found = any(
-            name == LLM_MODEL or name.startswith(f"{LLM_MODEL}:")
+            name == _get_model() or name.startswith(f"{_get_model()}:")
             for name in model_names
         )
 
         if not model_found:
             return False, (
-                f"Model '{LLM_MODEL}' not found. "
+                f"Model '{_get_model()}' not found. "
                 f"Available models: {model_names}. "
-                f"Run: ollama pull {LLM_MODEL}"
+                f"Run: ollama pull {_get_model()}"
             )
 
-        return True, f"Ollama ready with model '{LLM_MODEL}'"
+        return True, f"Ollama ready with model '{_get_model()}'"
 
     except Exception as exc:
         return False, f"Cannot connect to Ollama: {exc}. Run: ollama serve"

@@ -84,8 +84,11 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
                     live_data = json.loads(
                         LIVE_SESSIONS_FILE.read_text(encoding="utf-8")
                     )
-                except Exception:
-                    pass
+                except Exception as parse_exc:
+                    LOGGER.warning(
+                        "live_sessions.json is corrupt or unreadable, resetting: %s",
+                        parse_exc,
+                    )
 
             sessions = live_data.get("sessions", [])
             session_id = session_log.get("session_id", "")
@@ -198,8 +201,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         metrics.decrement_active_connections()
         try:
             client.close()
-        except Exception:
-            pass
+        except Exception as close_exc:
+            LOGGER.debug("Error closing rejected client socket: %s", close_exc)
         return
 
     # Record successful connection
@@ -525,8 +528,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
 
         try:
             chan.close()
-        except Exception:
-            pass
+        except Exception as chan_exc:
+            LOGGER.debug("Error closing SSH channel for %s: %s", attacker_ip, chan_exc)
         transport.close()
         LOGGER.info(
             "Session with %s ended (duration: %.1fs, commands: %d)",
@@ -694,8 +697,8 @@ class HoneypotServer:
         if self._socket:
             try:
                 self._socket.close()
-            except Exception:
-                pass
+            except Exception as sock_exc:
+                LOGGER.debug("Error closing server socket: %s", sock_exc)
             self._socket = None
         LOGGER.info("MiragePot server stopped")
 
