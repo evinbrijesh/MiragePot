@@ -512,8 +512,8 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
             terminal_html += f"""
             <div class="live-cmd">
                 <span class="live-time">[{time_str}]</span>
-                <span class="live-ip">{cmd["ip"]}</span>
-                root@miragepot:~# {cmd["command"]}
+                <span class="live-ip">{cmd["ip"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</span>
+                root@miragepot:~# {cmd["command"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}
             </div>
             """
             if cmd["response"]:
@@ -692,14 +692,23 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
             conf_colors = {"high": "#e74c3c", "medium": "#f39c12", "low": "#3498db"}
             conf_color = conf_colors.get(confidence, "#95a5a6")
 
+            # P4-02: HTML-escape all attacker-influenced fields before embedding in raw HTML
+            def _h(s: str) -> str:
+                return (
+                    s.replace("&", "&amp;")
+                    .replace("<", "&lt;")
+                    .replace(">", "&gt;")
+                    .replace('"', "&quot;")
+                )
+
             st.markdown(
                 f"""
                 <div style="background:#1a1a2e;padding:10px;margin:5px 0;border-radius:4px;
                 border-left:4px solid {conf_color};">
-                    <strong style="color:#00d9ff;">{technique_id}</strong> - {technique_name}
-                    <br><span style="color:#888;font-size:12px;">Stage: {stage} | Confidence: {confidence}</span>
-                    <br><code style="color:#00ff00;font-size:11px;">{command[:80]}...</code>
-                    <br><span style="color:#aaa;font-size:11px;">{description}</span>
+                    <strong style="color:#00d9ff;">{_h(technique_id)}</strong> - {_h(technique_name)}
+                    <br><span style="color:#888;font-size:12px;">Stage: {_h(stage)} | Confidence: {_h(confidence)}</span>
+                    <br><code style="color:#00ff00;font-size:11px;">{_h(command[:80])}...</code>
+                    <br><span style="color:#aaa;font-size:11px;">{_h(description)}</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -1340,19 +1349,34 @@ def main() -> None:
         initial_sidebar_state="expanded",
     )
 
-    # ---- Authentication gate (set MIRAGEPOT_DASHBOARD_PASSWORD in .env to enable) ----
+    # ---- Authentication gate ----
+    # P4-03: Require MIRAGEPOT_DASHBOARD_PASSWORD to be set.  The dashboard exposes
+    # all session logs including attacker IPs, credentials, and commands — it must
+    # never be reachable without a password.  Refuse to start if the variable is unset
+    # or empty, rather than silently allowing unauthenticated access.
     required_password = os.environ.get("MIRAGEPOT_DASHBOARD_PASSWORD", "")
-    if required_password:
-        if not st.session_state.get("_auth_ok"):
-            st.title("MiragePot Dashboard — Login")
-            entered = st.text_input("Password", type="password", key="_auth_input")
-            if st.button("Login"):
-                if entered == required_password:
-                    st.session_state["_auth_ok"] = True
-                    st.rerun()
-                else:
-                    st.error("Incorrect password.")
-            st.stop()
+    if not required_password:
+        st.error(
+            "**Dashboard authentication is not configured.**\n\n"
+            "Set the `MIRAGEPOT_DASHBOARD_PASSWORD` environment variable before starting "
+            "the dashboard.  This variable must not be empty — the dashboard contains "
+            "sensitive attacker session data and must be protected."
+        )
+        st.stop()
+
+    if not st.session_state.get("_auth_ok"):
+        st.title("MiragePot Dashboard — Login")
+        entered = st.text_input("Password", type="password", key="_auth_input")
+        if st.button("Login"):
+            import hmac as _hmac
+
+            # P4-08: Use constant-time comparison to prevent timing attacks
+            if _hmac.compare_digest(entered, required_password):
+                st.session_state["_auth_ok"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect password.")
+        st.stop()
     # ---- End authentication gate ----
 
     # Custom CSS for dark theme

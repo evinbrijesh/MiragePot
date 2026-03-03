@@ -77,25 +77,182 @@ class AuthAttempt:
         }
 
 
-def get_or_create_host_key() -> paramiko.PKey:
-    """Load the SSH host key from disk, generating it if missing.
+def _ensure_key_dir(key_path: Path) -> None:
+    """Create key directory with owner-only permissions (P2-03).
 
-    This ensures the honeypot has a persistent identity between runs,
-    which feels more realistic to attackers.
+    Creates the parent directory if missing (mode 0o700), then enforces
+    0o700 even if the directory already existed.
     """
-    if HOST_KEY_PATH.exists():
-        try:
-            return paramiko.RSAKey(filename=str(HOST_KEY_PATH))
-        except Exception as exc:  # pragma: no cover - defensive
-            LOGGER.error("Failed to load host key, regenerating: %s", exc)
+    key_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    try:
+        key_path.parent.chmod(0o700)
+    except Exception as chmod_exc:
+        LOGGER.warning(
+            "Could not set directory permissions on %s: %s", key_path.parent, chmod_exc
+        )
 
-    # Generate and save a new 4096-bit RSA key for better security
-    key = paramiko.RSAKey.generate(4096)
-    # Ensure parent directory exists
-    HOST_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
-    key.write_private_key_file(str(HOST_KEY_PATH))
-    LOGGER.info("Generated new 4096-bit RSA host key")
-    return key
+
+def _check_key_permissions(key_path: Path) -> None:
+    """Warn if a key file has unsafe permissions (P2-03)."""
+    mode = key_path.stat().st_mode & 0o177
+    if mode & 0o077:
+        LOGGER.warning(
+            "Host key %s has unsafe permissions %o — expected 0600",
+            key_path,
+            mode,
+        )
+
+
+def _generate_ed25519_key() -> paramiko.PKey:
+    """Generate an Ed25519 key using the ``cryptography`` library.
+
+    paramiko 4.x does not expose ``Ed25519Key.generate()``, so we generate
+    the key via ``cryptography`` directly and wrap it.
+    """
+    import io
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+    )
+
+    priv = Ed25519PrivateKey.generate()
+    pem = priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+    return paramiko.Ed25519Key.from_private_key(io.StringIO(pem.decode()))
+
+
+def _generate_ecdsa_key() -> paramiko.PKey:
+    """Generate an ECDSA nistp256 key using the ``cryptography`` library."""
+    import io
+
+    from cryptography.hazmat.primitives.asymmetric.ec import (
+        SECP256R1,
+        generate_private_key,
+    )
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+    )
+
+    priv = generate_private_key(SECP256R1())
+    pem = priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
+    return paramiko.ECDSAKey.from_private_key(io.StringIO(pem.decode()))
+
+
+def get_or_create_host_key() -> paramiko.PKey:
+    """Load (or generate) SSH host keys and return the primary Ed25519 key.
+
+    P2-07: Generates three key types — Ed25519 (primary), ECDSA (nistp256),
+    and RSA-4096 — each stored in its own file.  All three are available for
+    callers that register additional keys to the transport (see
+    ``get_all_host_keys()``), which lets the server present the key type
+    preferred by the connecting client.
+
+    P2-03: The key directory is created with mode 0o700 (owner-only).
+    P2-05: Key path is read from config rather than hardcoded.
+    """
+    from miragepot.config import get_config
+
+    base_path = get_config().ssh.host_key_path  # e.g. data/host.key
+
+    # Derive sibling paths for each algorithm
+    ed25519_path = base_path.parent / (base_path.stem + "_ed25519" + base_path.suffix)
+    ecdsa_path = base_path.parent / (base_path.stem + "_ecdsa" + base_path.suffix)
+    rsa_path = base_path.parent / (base_path.stem + "_rsa" + base_path.suffix)
+
+    # Ensure the key directory exists with safe permissions
+    _ensure_key_dir(base_path)
+
+    # -- Ed25519 (primary) --
+    if ed25519_path.exists():
+        try:
+            _check_key_permissions(ed25519_path)
+            ed25519_key: paramiko.PKey = paramiko.Ed25519Key.from_private_key_file(
+                str(ed25519_path)
+            )
+            LOGGER.debug("Loaded Ed25519 host key from %s", ed25519_path)
+        except Exception as exc:
+            LOGGER.error("Failed to load Ed25519 key, regenerating: %s", exc)
+            ed25519_key = _generate_ed25519_key()
+            ed25519_key.write_private_key_file(str(ed25519_path))
+            LOGGER.info("Regenerated Ed25519 host key at %s", ed25519_path)
+    else:
+        ed25519_key = _generate_ed25519_key()
+        ed25519_key.write_private_key_file(str(ed25519_path))
+        LOGGER.info("Generated new Ed25519 host key at %s", ed25519_path)
+
+    # -- ECDSA nistp256 --
+    if ecdsa_path.exists():
+        try:
+            _check_key_permissions(ecdsa_path)
+            paramiko.ECDSAKey.from_private_key_file(str(ecdsa_path))
+            LOGGER.debug("Loaded ECDSA host key from %s", ecdsa_path)
+        except Exception as exc:
+            LOGGER.error("Failed to load ECDSA key, regenerating: %s", exc)
+            ecdsa_key = _generate_ecdsa_key()
+            ecdsa_key.write_private_key_file(str(ecdsa_path))
+            LOGGER.info("Regenerated ECDSA host key at %s", ecdsa_path)
+    else:
+        ecdsa_key = _generate_ecdsa_key()
+        ecdsa_key.write_private_key_file(str(ecdsa_path))
+        LOGGER.info("Generated new ECDSA host key at %s", ecdsa_path)
+
+    # -- RSA-4096 (kept for legacy client compatibility) --
+    if rsa_path.exists():
+        try:
+            _check_key_permissions(rsa_path)
+            paramiko.RSAKey.from_private_key_file(str(rsa_path))
+            LOGGER.debug("Loaded RSA host key from %s", rsa_path)
+        except Exception as exc:
+            LOGGER.error("Failed to load RSA key, regenerating: %s", exc)
+            rsa_key = paramiko.RSAKey.generate(4096)
+            rsa_key.write_private_key_file(str(rsa_path))
+            LOGGER.info("Regenerated RSA host key at %s", rsa_path)
+    else:
+        rsa_key = paramiko.RSAKey.generate(4096)
+        rsa_key.write_private_key_file(str(rsa_path))
+        LOGGER.info("Generated new RSA-4096 host key at %s", rsa_path)
+
+    # Backward-compat: if the legacy single-key file still exists, leave it
+    # in place but do not use it — new code uses the algorithm-specific files.
+
+    return ed25519_key
+
+
+def get_all_host_keys() -> List[paramiko.PKey]:
+    """Return all host keys (Ed25519, ECDSA, RSA) in preference order.
+
+    P2-07: Callers should add every key to the transport so the server can
+    negotiate the best algorithm the client supports::
+
+        for key in get_all_host_keys():
+            transport.add_server_key(key)
+    """
+    from miragepot.config import get_config
+
+    base_path = get_config().ssh.host_key_path
+    ed25519_path = base_path.parent / (base_path.stem + "_ed25519" + base_path.suffix)
+    ecdsa_path = base_path.parent / (base_path.stem + "_ecdsa" + base_path.suffix)
+    rsa_path = base_path.parent / (base_path.stem + "_rsa" + base_path.suffix)
+
+    keys: List[paramiko.PKey] = []
+
+    loaders: List[Tuple[Path, Any]] = [
+        (ed25519_path, paramiko.Ed25519Key),
+        (ecdsa_path, paramiko.ECDSAKey),
+        (rsa_path, paramiko.RSAKey),
+    ]
+    for path, cls in loaders:
+        if path.exists():
+            try:
+                keys.append(cls.from_private_key_file(str(path)))
+            except Exception as exc:
+                LOGGER.warning("Could not load host key %s: %s", path, exc)
+
+    return keys
 
 
 def extract_fingerprint_from_transport(transport: paramiko.Transport) -> SSHFingerprint:
@@ -148,9 +305,20 @@ class SSHServer(paramiko.ServerInterface):
     Also captures authentication attempts and client metadata for forensics.
     """
 
+    # P2-04: Reject the first N password attempts before accepting.
+    # Real OpenSSH rejects wrong passwords; instant acceptance on attempt #1 is a
+    # classic honeypot detection signal used by automated scanners and Cowrie-detectors.
+    # Default: fail the first 2 attempts, accept on attempt 3 (realistic brute-force).
+    _FAIL_BEFORE_ACCEPT: int = 2
+    # Maximum total auth attempts per connection (OpenSSH default is 6)
+    _MAX_AUTH_ATTEMPTS: int = 6
+
     def __init__(self) -> None:
         super().__init__()
         self.event = None
+
+        # P2-04: Track attempt count for fail-before-accept behaviour
+        self._attempt_count: int = 0
 
         # Forensic data collection
         self.auth_attempts: List[AuthAttempt] = []
@@ -165,8 +333,40 @@ class SSHServer(paramiko.ServerInterface):
         return OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def check_auth_password(self, username: str, password: str) -> int:
-        """Accept any password and record the attempt for forensics."""
+        """Accept password after a realistic number of failed attempts.
+
+        P2-04: Real OpenSSH rejects wrong passwords on first attempt.  Instant
+        success on attempt #1 is a classic honeypot signature.  We fail the first
+        _FAIL_BEFORE_ACCEPT attempts and then accept, simulating a valid login
+        discovered by brute-force.  All attempts (success and failure) are recorded.
+        """
         from datetime import datetime, timezone
+
+        self._attempt_count += 1
+
+        # P2-04: Hard-cap total attempts per connection (mirrors OpenSSH MaxAuthTries=6)
+        if self._attempt_count > self._MAX_AUTH_ATTEMPTS:
+            LOGGER.info(
+                "Auth attempt: user=%s (rejected — max attempts exceeded)", username
+            )
+            return AUTH_FAILED
+
+        # P2-04: Fail the first N attempts to avoid instant-accept detection
+        if self._attempt_count <= self._FAIL_BEFORE_ACCEPT:
+            attempt = AuthAttempt(
+                method="password",
+                username=username,
+                credential=password,
+                success=False,
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+            self.auth_attempts.append(attempt)
+            LOGGER.info(
+                "Auth attempt: user=%s attempt=%d (rejected — fail-before-accept)",
+                username,
+                self._attempt_count,
+            )
+            return AUTH_FAILED
 
         attempt = AuthAttempt(
             method="password",
@@ -181,7 +381,9 @@ class SSHServer(paramiko.ServerInterface):
         self.successful_username = username
         self.successful_password = password
 
-        LOGGER.info("Auth attempt: user=%s (accepted)", username)
+        LOGGER.info(
+            "Auth attempt: user=%s attempt=%d (accepted)", username, self._attempt_count
+        )
         return AUTH_SUCCESSFUL
 
     def check_auth_publickey(self, username: str, key: paramiko.PKey) -> int:
@@ -299,6 +501,7 @@ __all__ = [
     "SSHFingerprint",
     "AuthAttempt",
     "get_or_create_host_key",
+    "get_all_host_keys",
     "create_listening_socket",
     "extract_fingerprint_from_transport",
 ]

@@ -15,6 +15,7 @@ Metrics exposed:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import sys
 import time
@@ -36,6 +37,42 @@ from prometheus_client import (
 )
 
 logger = logging.getLogger(__name__)
+
+# =============================================================================
+# P5-04: Cardinality caps for Prometheus labels.
+# Unbounded label values (attacker-controlled usernames, command strings) can
+# exhaust Prometheus/scraper memory.  We hash usernames and restrict command
+# patterns to the first token, capped at a fixed length.
+# =============================================================================
+_MAX_USERNAME_LABEL_LEN = 32  # hash hex is 8 chars; raw label capped here
+_MAX_COMMAND_PATTERN_LEN = 32  # first token of command, truncated
+_MAX_UNIQUE_CREDS = 100_000  # cap in-memory credential set
+
+
+def _label_username(username: str) -> str:
+    """Return a safe, bounded Prometheus label for a username.
+
+    If the username is short and printable it is used as-is (up to
+    _MAX_USERNAME_LABEL_LEN chars).  Otherwise it is SHA-256-hashed so
+    the label cardinality remains bounded even under dictionary attacks.
+    """
+    if (
+        username.isascii()
+        and username.isprintable()
+        and len(username) <= _MAX_USERNAME_LABEL_LEN
+    ):
+        return username
+    return (
+        "hashed_"
+        + hashlib.sha256(username.encode("utf-8", errors="replace")).hexdigest()[:8]
+    )
+
+
+def _label_command_pattern(command: str) -> str:
+    """Return a safe, bounded Prometheus label for a command pattern."""
+    first = command.split()[0] if command.split() else "unknown"
+    return first[:_MAX_COMMAND_PATTERN_LEN]
+
 
 # =============================================================================
 # Metric Definitions
@@ -260,8 +297,9 @@ class MetricsCollector:
         # Categorize threat level
         if score >= 80:
             threat_level = "high"
-            # Extract command pattern for high-threat tracking
-            pattern = command.split()[0] if command else "unknown"
+            # P5-04: Use a bounded command pattern label (first token, truncated)
+            # to prevent label explosion from arbitrary attacker input.
+            pattern = _label_command_pattern(command)
             high_threat_commands.labels(command_pattern=pattern).inc()
         elif score >= 30:
             threat_level = "medium"
@@ -316,11 +354,16 @@ class MetricsCollector:
             username: Username tried
             password: Password tried
         """
-        auth_attempts.labels(username=username).inc()
+        # P5-04: Hash/truncate username to prevent label cardinality explosion
+        # from attacker-controlled credential-stuffing input.
+        auth_attempts.labels(username=_label_username(username)).inc()
 
         with self._lock:
             cred_pair = f"{username}:{password}"
-            self._unique_creds.add(cred_pair)
+            # P5-04: Cap the credential set so a sustained brute-force can't
+            # exhaust memory by generating millions of unique pairs.
+            if len(self._unique_creds) < _MAX_UNIQUE_CREDS:
+                self._unique_creds.add(cred_pair)
             unique_credentials.set(len(self._unique_creds))
 
         logger.debug(f"Auth attempt recorded: username={username}")
@@ -416,17 +459,22 @@ class MetricsCollector:
 
 # Global singleton instance
 _metrics_collector: Optional[MetricsCollector] = None
+# P5-06: Lock to prevent a race condition where two threads simultaneously find
+# _metrics_collector is None and both create a MetricsCollector (double-init).
+_metrics_collector_lock = Lock()
 
 
 def get_metrics_collector() -> MetricsCollector:
-    """Get the global metrics collector instance.
+    """Get the global metrics collector instance (thread-safe).
 
     Returns:
         Global MetricsCollector instance
     """
     global _metrics_collector
     if _metrics_collector is None:
-        _metrics_collector = MetricsCollector()
+        with _metrics_collector_lock:
+            if _metrics_collector is None:
+                _metrics_collector = MetricsCollector()
     return _metrics_collector
 
 
@@ -441,12 +489,14 @@ def reset_metrics_collector():
 # =============================================================================
 
 
-def start_metrics_server(port: int = 9090, host: str = "0.0.0.0"):
+def start_metrics_server(port: int = 9090, host: str = "127.0.0.1"):
     """Start HTTP server for Prometheus metrics endpoint.
 
     Args:
         port: Port to listen on
-        host: Host address to bind to
+        host: Host address to bind to (default: 127.0.0.1 — loopback only,
+              P4-05: the metrics endpoint has no authentication so it must
+              not be exposed to the network interface)
     """
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from threading import Thread

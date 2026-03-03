@@ -356,9 +356,11 @@ def _generate_fallback_response(command: str) -> str:
     }
 
     if base_cmd in known_system_commands:
-        # Return a generic but plausible response for known commands
-        # when we can't use the LLM
-        return f"bash: {base_cmd}: command execution unavailable\n"
+        # P3-12: Return a realistic shell error rather than a string that
+        # reveals the honeypot can't actually execute the command.
+        # "fork: Resource temporarily unavailable" is what a real Linux
+        # system returns when it's out of process slots.
+        return f"bash: fork: Resource temporarily unavailable\n"
 
     # Unknown command
     return f"bash: {base_cmd}: command not found\n"

@@ -331,33 +331,36 @@ KNOWN_COMMANDS = {
 
 # Prompt injection patterns to detect and block
 INJECTION_PATTERNS = [
-    # Direct instruction override attempts (must be at start of input)
-    r"^ignore\s+(all\s+)?(previous|prior|above)",
-    r"^forget\s+(everything|all|previous)",
-    r"^disregard\s+(all\s+)?(previous|prior|instructions)",
-    r"^you\s+are\s+(now|a|an|my)",
-    r"^pretend\s+(to\s+be|you)",
-    r"^act\s+(as|like)",
-    r"^roleplay\s+as",
-    r"^imagine\s+you",
-    r"^from\s+now\s+on",
-    r"^new\s+instructions?:",
-    # Role/persona assignment markers (must be at start)
-    r"^system\s*:",
-    r"^assistant\s*:",
-    r"^human\s*:",
-    r"^user\s*:",
-    r"^ai\s*:",
-    r"^bot\s*:",
-    r"^chatgpt\s*:",
-    r"^gpt\s*:",
-    r"^claude\s*:",
-    r"^llm\s*:",
-    # Instruction injection - requires both keywords in suspicious context
-    r"\bignore\b.{0,20}\binstructions?\b",
-    r"\boverride\b.{0,20}\brules?\b",
-    r"\bbypass\b.{0,20}\b(restrictions?|filters?|rules?)\b",
-    r"\bdisable\b.{0,20}\b(safety|restrictions?|filters?)\b",
+    # Direct instruction override attempts
+    # P3-17: Removed leading ^ anchors — these phrases are dangerous regardless
+    # of where they appear in a multi-line or multi-command input.
+    r"ignore\s+(all\s+)?(previous|prior|above)",
+    r"forget\s+(everything|all|previous)",
+    r"disregard\s+(all\s+)?(previous|prior|instructions)",
+    r"you\s+are\s+(now|a|an|my)",
+    r"pretend\s+(to\s+be|you)",
+    r"act\s+(as|like)",
+    r"roleplay\s+as",
+    r"imagine\s+you",
+    r"from\s+now\s+on",
+    r"new\s+instructions?:",
+    # Role/persona assignment markers
+    r"system\s*:",
+    r"assistant\s*:",
+    r"human\s*:",
+    r"user\s*:",
+    r"ai\s*:",
+    r"bot\s*:",
+    r"chatgpt\s*:",
+    r"gpt\s*:",
+    r"claude\s*:",
+    r"llm\s*:",
+    # Instruction injection — P3-04: increase look-ahead window from 20 to 80 chars
+    # so that patterns like "ignore ... (lots of text) ... instructions" are caught.
+    r"\bignore\b.{0,80}\binstructions?\b",
+    r"\boverride\b.{0,80}\brules?\b",
+    r"\bbypass\b.{0,80}\b(restrictions?|filters?|rules?)\b",
+    r"\bdisable\b.{0,80}\b(safety|restrictions?|filters?)\b",
     # XML/HTML-style injection markers
     r"<system",
     r"<\|system",
@@ -394,19 +397,19 @@ INJECTION_PATTERNS = [
     r"stop\s+being\s+(an?\s+)?(ai|assistant|chatbot)",
     r"you\s+are\s+(an?\s+)?(human|person|real)",
     r"\breal\s+(person|human)\s+(not|terminal)\b",
-    # Output manipulation (must be at start or after newline)
-    r"^print\s+(only|just)\s+the",
-    r"^output\s+(only|just)",
-    r"^respond\s+(only|just)\s+with",
-    r"^say\s+(only|just)",
-    r"^reply\s+(only|just)\s+with",
-    r"^answer\s+(only|just)\s+with",
-    # Context injection (must be at start of line - these are prompt-style headers)
-    r"^context\s*:",
-    r"^background\s*:",
-    r"^scenario\s*:",
-    r"^setting\s*:",
-    r"^situation\s*:",
+    # Output manipulation
+    r"print\s+(only|just)\s+the",
+    r"output\s+(only|just)",
+    r"respond\s+(only|just)\s+with",
+    r"say\s+(only|just)",
+    r"reply\s+(only|just)\s+with",
+    r"answer\s+(only|just)\s+with",
+    # Context injection
+    r"context\s*:",
+    r"background\s*:",
+    r"scenario\s*:",
+    r"setting\s*:",
+    r"situation\s*:",
     # Token manipulation attempts
     r"<\|[a-z_]+\|>",
     r"\[\[[a-z_]+\]\]",
@@ -451,13 +454,30 @@ ENCODED_INJECTION_REGEX = [
 def _load_cache() -> Dict[str, str]:
     """Load cached command outputs from JSON.
 
+    P3-10: Replace the hardcoded placeholder hostname "miragepot" (stored in
+    the cache file at build time) with the operator-configured hostname so
+    responses don't leak the project's name to attackers.
+
     If the file is missing or invalid, return an empty dict.
     """
     try:
         raw = CACHE_PATH.read_text(encoding="utf-8")
         if not raw.strip():
             return {}
-        return cast(Dict[str, str], json.loads(raw))
+        data = cast(Dict[str, str], json.loads(raw))
+
+        # P3-10: Substitute any occurrences of the literal "miragepot" hostname
+        # placeholder with the configured honeypot hostname.
+        configured_hostname = get_config().honeypot.hostname
+        if configured_hostname and configured_hostname != "miragepot":
+            substituted: Dict[str, str] = {}
+            for key, value in data.items():
+                if "miragepot" in value:
+                    value = value.replace("miragepot", configured_hostname)
+                substituted[key] = value
+            return substituted
+
+        return data
     except Exception:
         return {}
 
@@ -1518,24 +1538,37 @@ def init_session_state() -> Dict[str, Any]:
 def _normalize_path(cwd: str, target: str) -> str:
     """Convert a target path (absolute or relative) into an absolute path.
 
-    This is a minimal, safe normalizer just for fake paths.
+    P1.1-01: Resolve '.' and '..' components so that paths like
+    '/etc/../etc/passwd' or '../../root/.bashrc' work correctly and cannot
+    be used to escape the virtual filesystem root.  Also expand leading '~'
+    to '/root' (P1.1-02).
     """
     if not target:
         return cwd
+
+    # P1.1-02: Expand leading ~ to home directory
+    if target == "~" or target.startswith("~/"):
+        target = "/root" + target[1:]
+
     if target.startswith("/"):
         path = target
     else:
-        if cwd.endswith("/"):
-            path = cwd + target
-        else:
-            path = cwd + "/" + target
+        path = cwd.rstrip("/") + "/" + target
 
-    # Normalize any "//" or trailing "/"
-    while "//" in path:
-        path = path.replace("//", "/")
-    if len(path) > 1 and path.endswith("/"):
-        path = path[:-1]
-    return path
+    # P1.1-01: Resolve . and .. components
+    parts: list = []
+    for component in path.split("/"):
+        if component == "" or component == ".":
+            continue
+        elif component == "..":
+            if parts:
+                parts.pop()
+            # Already at root — stay there
+        else:
+            parts.append(component)
+
+    resolved = "/" + "/".join(parts)
+    return resolved if resolved != "/" else "/"
 
 
 # ---------- Built-in command handlers (fake FS) ----------
@@ -2110,7 +2143,35 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     if not stripped:
         return True, ""  # empty command, just re-prompt
 
-    # echo with redirection (very simple)
+    # P3-02: Handle plain `echo` entirely in the builtin layer — never send echo
+    # content to the LLM.  The LLM could inadvertently repeat attacker-supplied
+    # text back into the response, or the content could be a prompt injection.
+    # Handles: echo, echo TEXT, echo "TEXT", echo $VAR, echo TEXT > file (via redir).
+    if stripped == "echo" or stripped.startswith("echo "):
+        # Delegate redirection forms first
+        handled_redir, out_redir = _handle_echo_redirection(stripped, state)
+        if handled_redir:
+            return True, out_redir
+        # Plain echo: expand simple $VAR references from a small env dict
+        _env = {
+            "$SHELL": "/bin/bash",
+            "$USER": state.get("username", "root"),
+            "$HOME": "/root",
+            "$PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "$0": "-bash",
+            "$PWD": state.get("cwd", "/root"),
+            "$LOGNAME": state.get("username", "root"),
+        }
+        text = stripped[5:].strip() if stripped.startswith("echo ") else ""
+        # Remove surrounding quotes
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+            text = text[1:-1]
+        # Expand env vars
+        for var, val in _env.items():
+            text = text.replace(var, val)
+        return True, text + "\n"
+
+    # echo with redirection (very simple) — kept as fallback for non-echo-prefixed calls
     handled_redir, out_redir = _handle_echo_redirection(stripped, state)
     if handled_redir:
         return True, out_redir
@@ -2223,29 +2284,67 @@ def _is_prompt_injection(command: str) -> bool:
     - Encoded/obfuscated injections (base64, hex, URL encoding, leetspeak)
     - Character splitting attempts
     - Unicode homoglyph substitutions
+    - P3-03: Injection hidden after shell operators (;, |, &&, ||)
+    - P3-06: Mixed-script Unicode (Latin + Cyrillic/Greek homoglyphs)
     """
-    # Normalize Unicode to prevent homoglyph attacks
-    # NFKC normalization converts visually similar characters to their canonical forms
-    normalized = unicodedata.normalize("NFKC", command)
+    # P3-03: Split on shell operators and check each segment independently.
+    # Attackers may hide injection after a legitimate-looking prefix like:
+    #   ls; ignore all previous instructions
+    # A simple split on the full string would miss multi-segment attacks.
+    _SHELL_SEP = re.compile(r"[;|]|&&|\|\|")
+    segments = [command] + _SHELL_SEP.split(command)
 
-    # Also normalize whitespace to prevent obfuscation via tabs, zero-width spaces, etc.
-    # Replace all whitespace variations with single space
-    normalized = re.sub(r"\s+", " ", normalized)
+    for segment in segments:
+        # Normalize Unicode to prevent homoglyph attacks
+        # NFKC normalization converts visually similar characters to their canonical forms
+        normalized = unicodedata.normalize("NFKC", segment)
 
-    # Check standard patterns on normalized input
-    for pattern in INJECTION_REGEX:
-        if pattern.search(normalized):
-            return True
+        # Also normalize whitespace to prevent obfuscation via tabs, zero-width spaces, etc.
+        normalized = re.sub(r"\s+", " ", normalized)
 
-    # Check encoded/obfuscated patterns
-    for pattern in ENCODED_INJECTION_REGEX:
-        if pattern.search(normalized):
-            return True
+        # Check standard patterns on normalized input
+        for pattern in INJECTION_REGEX:
+            if pattern.search(normalized):
+                return True
+
+        # Check encoded/obfuscated patterns
+        for pattern in ENCODED_INJECTION_REGEX:
+            if pattern.search(normalized):
+                return True
 
     # Check for suspicious characteristics
     if _has_suspicious_encoding(command):
         return True
 
+    # P3-06: Detect mixed-script Unicode — commands that mix Latin characters
+    # with Cyrillic, Greek, or other scripts to create homoglyph substitutions
+    # that survive NFKC normalization (e.g., Cyrillic 'а' looks like Latin 'a').
+    if _has_mixed_script(command):
+        return True
+
+    return False
+
+
+def _has_mixed_script(text: str) -> bool:
+    """P3-06: Detect suspicious mixing of Unicode scripts in a single token.
+
+    Returns True if a single whitespace-separated token contains characters
+    from two or more distinct Unicode scripts (e.g., Latin + Cyrillic).
+    This is a strong indicator of a homoglyph substitution attack.
+    """
+    for token in text.split():
+        scripts: set = set()
+        for ch in token:
+            cat = unicodedata.category(ch)
+            # Skip punctuation, digits, symbols — focus on letters
+            if cat.startswith("L"):
+                name = unicodedata.name(ch, "")
+                # Extract script from Unicode name (e.g., "LATIN SMALL LETTER A" → "LATIN")
+                script = name.split()[0] if name else "UNKNOWN"
+                scripts.add(script)
+        # Multiple scripts in one token is suspicious
+        if len(scripts) >= 2:
+            return True
     return False
 
 

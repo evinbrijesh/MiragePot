@@ -410,6 +410,11 @@ class TTYHandler:
         command = None
         needs_prompt = False
 
+        # P5-07: Filter non-ASCII bytes (128-255) — they are either high-ASCII or
+        # invalid UTF-8 start bytes that can cause encode() exceptions downstream.
+        if byte > 127:
+            return None, "", False
+
         # Handle escape sequences
         if self.in_escape:
             return self._handle_escape_byte(c)
@@ -466,6 +471,14 @@ class TTYHandler:
         # Ignore other control characters
         if ord(c) < 32:
             return None, "", False
+
+        # P5-02: Enforce maximum command length to prevent memory DoS.
+        # An attacker streaming millions of characters without pressing Enter would
+        # exhaust per-session buffer memory across concurrent connections.
+        MAX_COMMAND_LENGTH = 4096
+        if len(self.buffer) >= MAX_COMMAND_LENGTH:
+            # Ring the terminal bell to signal rejection; discard the character
+            return None, "\x07", False
 
         # Regular printable character
         self.buffer += c

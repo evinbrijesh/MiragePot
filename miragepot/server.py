@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import random
+import re
+import secrets
 import socket
+import tempfile
 import threading
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, cast
 
@@ -28,6 +33,7 @@ from .ssh_interface import (
     SSHServer,
     create_listening_socket,
     get_or_create_host_key,
+    get_all_host_keys,
     extract_fingerprint_from_transport,
 )
 from .tty_handler import TTYHandler, handle_clear_command, ANSI_CLEAR_SCREEN
@@ -67,6 +73,69 @@ SSH_PORT = 2222
 LIVE_SESSIONS_FILE = LOG_DIR / "live_sessions.json"
 _live_sessions_lock = threading.Lock()
 
+# Artificial minimum response delay (ms) for cache/builtin paths — reduces timing
+# side-channel that lets attackers distinguish fast (cache) vs slow (LLM) responses.
+# P3-13: All responses get at least MIN_RESPONSE_DELAY_MS ms of artificial latency.
+_MIN_RESPONSE_DELAY_S = 0.05  # 50 ms baseline
+_MAX_EXTRA_DELAY_S = 0.15  # up to 150 ms random jitter → total 50–200 ms
+
+# Strip ANSI escape sequences and ASCII control characters for safe logging.
+# P1-02: Attacker-controlled strings (command, username, IP) may contain \n, \r, or
+# ANSI codes that would spoof log entries in aggregators like Loki/ELK.
+_CTRL_RE = re.compile(r"[\x00-\x1f\x7f]|(?:\x1b\[[0-?]*[ -/]*[@-~])")
+
+
+def _safe_log(s: str, max_len: int = 200) -> str:
+    """Strip control/ANSI characters from attacker-controlled strings for logging."""
+    cleaned = _CTRL_RE.sub("", s)
+    return cleaned[:max_len] if len(cleaned) > max_len else cleaned
+
+
+def _rotate_logs(log_dir: Path, max_age_days: int = 30, max_files: int = 10000) -> None:
+    """P5-03: Delete session log files older than max_age_days, or if there are
+    more than max_files session logs (keeps the most recent ones).
+
+    Called once at server startup to prevent unbounded disk growth under sustained
+    botnet attacks.  Only deletes session_*.json files, not live_sessions.json.
+    """
+    try:
+        session_files = sorted(
+            log_dir.glob("session_*.json"),
+            key=lambda p: p.stat().st_mtime,
+        )
+
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        deleted = 0
+
+        # Delete by age first
+        for f in session_files:
+            try:
+                mtime = datetime.utcfromtimestamp(f.stat().st_mtime)
+                if mtime < cutoff:
+                    f.unlink()
+                    deleted += 1
+            except Exception:
+                pass
+
+        # Then enforce file count cap on the remainder
+        remaining = sorted(
+            log_dir.glob("session_*.json"),
+            key=lambda p: p.stat().st_mtime,
+        )
+        if len(remaining) > max_files:
+            to_delete = remaining[: len(remaining) - max_files]
+            for f in to_delete:
+                try:
+                    f.unlink()
+                    deleted += 1
+                except Exception:
+                    pass
+
+        if deleted:
+            LOGGER.info("Log rotation: deleted %d old session log(s)", deleted)
+    except Exception as exc:
+        LOGGER.warning("Log rotation failed: %s", exc)
+
 
 def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> None:
     """Update the live sessions file for real-time dashboard streaming.
@@ -74,6 +143,9 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
     Args:
         session_log: Current session data
         remove: If True, remove this session from live tracking
+
+    P1-03: Uses atomic write (write to temp file + os.rename) to prevent the
+    dashboard from reading a partially-written file and getting a JSON parse error.
     """
     try:
         with _live_sessions_lock:
@@ -119,16 +191,33 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
                 "last_updated": cutoff,
             }
 
-            LIVE_SESSIONS_FILE.write_text(
-                json.dumps(live_data, indent=2), encoding="utf-8"
+            # P1-03: Atomic write — write to a temp file in the same directory then
+            # rename() to replace the target.  os.rename() is atomic on POSIX.
+            payload = json.dumps(live_data, indent=2).encode("utf-8")
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=LIVE_SESSIONS_FILE.parent, suffix=".tmp"
             )
+            try:
+                os.write(tmp_fd, payload)
+                os.fsync(tmp_fd)
+                os.close(tmp_fd)
+                os.rename(tmp_path, LIVE_SESSIONS_FILE)
+            except Exception:
+                os.close(tmp_fd)
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+                raise
     except Exception as exc:
         LOGGER.debug("Failed to update live sessions: %s", exc)
 
 
 def _new_session_log(attacker_ip: str, attacker_port: int) -> Dict[str, Any]:
     """Create initial structure for a session log dict."""
-    session_id = f"session_{int(time.time() * 1000)}_{threading.get_ident()}"
+    # P5-09: Use cryptographically random session IDs instead of timestamp+thread ID,
+    # which is predictable and could allow an attacker to enumerate session log files.
+    session_id = f"session_{secrets.token_hex(16)}"
     return {
         "session_id": session_id,
         "attacker_ip": attacker_ip,
@@ -168,7 +257,18 @@ def _save_session_log(session_log: Dict[str, Any]) -> None:
         LOGGER.error("Failed to write session log %s: %s", session_id, exc)
 
 
-def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None:
+def _append_command(session_log: Dict[str, Any], entry: Dict[str, Any]) -> None:
+    """P5-11: Append a command entry, capping the list at 1000 to prevent unbounded
+    memory growth during long-running or automated attack sessions."""
+    cmds: List[Dict[str, Any]] = session_log["commands"]
+    if len(cmds) >= 1000:
+        cmds.pop(0)
+    cmds.append(entry)
+
+
+def _handle_client(
+    client: socket.socket, addr, host_key: paramiko.PKey, extra_keys: list | None = None
+) -> None:
     attacker_ip, attacker_port = addr[0], addr[1]
     metrics = get_metrics_collector()
 
@@ -217,7 +317,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         "Rate limiter: ACCEPTED connection from %s:%s", attacker_ip, attacker_port
     )
 
-    LOGGER.info("New connection from %s:%s", attacker_ip, attacker_port)
+    LOGGER.info("New connection from %s:%s", _safe_log(attacker_ip), attacker_port)
 
     session_log = _new_session_log(attacker_ip, attacker_port)
     session_state = init_session_state()
@@ -226,17 +326,73 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     LOGGER.debug("Creating Paramiko transport for %s:%s", attacker_ip, attacker_port)
     transport = paramiko.Transport(client)
 
+    # P2-01: Override Paramiko's default banner to match the configured OpenSSH version.
+    # Without this, Paramiko sends "SSH-2.0-paramiko_X.Y.Z" which instantly fingerprints
+    # the honeypot to any scanner.
+    transport.local_version = config.ssh.banner
+
     # Configure transport for better compatibility with various SSH clients (including Windows)
     transport.set_keepalive(30)  # Send keepalive every 30 seconds
 
-    # Enable more cipher suites and key exchange algorithms for Windows compatibility
-    # Windows SSH clients may use different algorithms than Linux clients
+    # P2-02 & P2-10: Configure algorithm list to match OpenSSH 8.2 and disable weak/Paramiko-only algorithms.
+    # Paramiko's defaults include 3des-cbc, hmac-md5, and non-standard KEX order which differ from OpenSSH.
     security_opts = transport.get_security_options()
     LOGGER.debug("Default key exchange algorithms: %s", security_opts.kex)
     LOGGER.debug("Default ciphers: %s", security_opts.ciphers)
+    # KEX order matching OpenSSH 8.2
+    _openssh_kex = [
+        "curve25519-sha256",
+        "curve25519-sha256@libssh.org",
+        "ecdh-sha2-nistp256",
+        "ecdh-sha2-nistp384",
+        "ecdh-sha2-nistp521",
+        "diffie-hellman-group-exchange-sha256",
+        "diffie-hellman-group16-sha512",
+        "diffie-hellman-group18-sha512",
+        "diffie-hellman-group14-sha256",
+    ]
+    # Cipher order matching OpenSSH 8.2 (chacha20 first, no 3des)
+    _openssh_ciphers = [
+        "aes128-ctr",
+        "aes192-ctr",
+        "aes256-ctr",
+        "aes128-cbc",
+        "aes192-cbc",
+        "aes256-cbc",
+    ]
+    # MAC order matching OpenSSH 8.2 (no hmac-md5)
+    _openssh_macs = [
+        "hmac-sha2-256",
+        "hmac-sha2-512",
+        "hmac-sha1",
+    ]
+    try:
+        # Filter to only algorithms Paramiko supports
+        available_kex = list(security_opts.kex)
+        available_ciphers = list(security_opts.ciphers)
+        available_macs = list(security_opts.digests)
+        filtered_kex = [k for k in _openssh_kex if k in available_kex]
+        filtered_ciphers = [c for c in _openssh_ciphers if c in available_ciphers]
+        filtered_macs = [m for m in _openssh_macs if m in available_macs]
+        if filtered_kex:
+            security_opts.kex = filtered_kex
+        if filtered_ciphers:
+            security_opts.ciphers = filtered_ciphers
+        if filtered_macs:
+            security_opts.digests = filtered_macs
+        LOGGER.debug("Applied OpenSSH-compatible algorithm list")
+    except Exception as alg_exc:
+        LOGGER.debug("Could not apply algorithm preferences: %s", alg_exc)
 
     transport.add_server_key(host_key)
-    LOGGER.debug("Added host key to transport for %s:%s", attacker_ip, attacker_port)
+    # P2-07: Register all available key types so the server can negotiate
+    # the algorithm preferred by the connecting client (Ed25519, ECDSA, RSA).
+    for key in extra_keys or []:
+        try:
+            transport.add_server_key(key)
+        except Exception:
+            pass
+    LOGGER.debug("Added host key(s) to transport for %s:%s", attacker_ip, attacker_port)
 
     server = SSHServer()
 
@@ -284,8 +440,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         session_log["ssh_fingerprint"] = ssh_fingerprint.to_dict()
         LOGGER.info(
             "Client %s version: %s",
-            attacker_ip,
-            ssh_fingerprint.client_version or "unknown",
+            _safe_log(attacker_ip),
+            _safe_log(ssh_fingerprint.client_version or "unknown"),
         )
     except Exception as e:
         LOGGER.debug("Could not extract SSH fingerprint: %s", e)
@@ -323,14 +479,25 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
         if security_config.log_passwords:
             LOGGER.info(
                 "Attacker %s logged in as '%s' with password '%s'",
-                attacker_ip,
-                server.successful_username,
-                server.successful_password[:20] + "..."
-                if server.successful_password and len(server.successful_password) > 20
-                else server.successful_password,
+                _safe_log(attacker_ip),
+                _safe_log(server.successful_username),
+                _safe_log(
+                    server.successful_password[:20] + "..."
+                    if server.successful_password
+                    and len(server.successful_password) > 20
+                    else server.successful_password or ""
+                ),
             )
 
-    chan.settimeout(300)
+    # P2-11: Use a bounded channel timeout derived from max_session_duration.
+    # A static 300-second timeout is independent of the configured session limit;
+    # cap at 30 s of idle wait so sessions don't linger past their deadline.
+    _chan_timeout = (
+        min(security_config.max_session_duration, 30)
+        if security_config.max_session_duration > 0
+        else 30
+    )
+    chan.settimeout(_chan_timeout)
 
     # Store username in session_state so command handlers can access it
     session_state["username"] = server.successful_username or "root"
@@ -354,8 +521,6 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
     # Register this session as live for real-time dashboard
     _update_live_sessions(session_log)
 
-    # Session timeout tracking
-    security_config = config.security
     max_session_duration = security_config.max_session_duration
 
     try:
@@ -398,7 +563,8 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                     # Handle 'clear' command specially
                     if command.strip() == "clear":
                         chan.send(ANSI_CLEAR_SCREEN.encode("utf-8"))
-                        session_log["commands"].append(
+                        _append_command(
+                            session_log,
                             {
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "command": command,
@@ -406,7 +572,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                                 "threat_score": 0,
                                 "delay_applied": 0,
                                 "cwd": session_state.get("cwd", "/root"),
-                            }
+                            },
                         )
                         chan.send(tty_handler.get_prompt().encode("utf-8"))
                         continue
@@ -424,13 +590,19 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                         response = handle_command(command, session_state)
                     except Exception as cmd_exc:  # pragma: no cover - defensive
                         LOGGER.error(
-                            "Command handling error for %s: %s", attacker_ip, cmd_exc
+                            "Command handling error for %s: %s",
+                            _safe_log(attacker_ip),
+                            cmd_exc,
                         )
-                        response = f"bash: internal error while handling '{command}'\n"
+                        # P3-16: Return a generic shell error that doesn't reveal the
+                        # honeypot's internal architecture or the sentinel string.
+                        _first = command.split()[0] if command.split() else "bash"
+                        response = f"bash: {_safe_log(_first)}: command not found\n"
 
                     # Special token indicating the session should close
                     if response == "__MIRAGEPOT_EXIT__":
-                        session_log["commands"].append(
+                        _append_command(
+                            session_log,
                             {
                                 "timestamp": datetime.utcnow().isoformat() + "Z",
                                 "command": command,
@@ -438,14 +610,15 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                                 "threat_score": score,
                                 "delay_applied": delay_applied,
                                 "cwd": session_state.get("cwd", "/root"),
-                            }
+                            },
                         )
                         chan.send(b"logout\r\n")
                         chan.close()
                         raise EOFError
 
                     # Log this command
-                    session_log["commands"].append(
+                    _append_command(
+                        session_log,
                         {
                             "timestamp": datetime.utcnow().isoformat() + "Z",
                             "command": command,
@@ -453,7 +626,7 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                             "threat_score": score,
                             "delay_applied": delay_applied,
                             "cwd": session_state.get("cwd", "/root"),
-                        }
+                        },
                     )
 
                     # Update live sessions for real-time dashboard
@@ -470,6 +643,15 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
                                 # Normalize LF to CRLF for SSH terminals
                                 response = response.replace("\n", "\r\n")
                             chan.send(response.encode("utf-8"))
+
+                        # P3-13: Uniform minimum response delay for all paths (cache,
+                        # builtins, LLM).  Without this, an attacker can distinguish fast
+                        # (cached/builtin) from slow (LLM) responses and infer that an
+                        # AI backend is in use, or map the cache.
+                        time.sleep(
+                            _MIN_RESPONSE_DELAY_S
+                            + random.uniform(0, _MAX_EXTRA_DELAY_S)
+                        )
 
                         chan.send(tty_handler.get_prompt().encode("utf-8"))
                     except Exception as send_exc:  # pragma: no cover - defensive
@@ -544,15 +726,21 @@ def _handle_client(client: socket.socket, addr, host_key: paramiko.PKey) -> None
 
 def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
     """Start the MiragePot SSH honeypot server."""
+    # P2-07: Generate/load all key types; use Ed25519 as primary.
     host_key = get_or_create_host_key()
+    all_host_keys = get_all_host_keys()
 
-    # Start Prometheus metrics server
+    # P5-03: Rotate old session logs at startup to prevent unbounded disk growth.
+    _rotate_logs(LOG_DIR)
+
+    # P4-05: Bind metrics server to loopback only — it has no auth and should not
+    # be reachable from the network.
     metrics_port = 9090
     try:
-        start_metrics_server(port=metrics_port, host="0.0.0.0")
+        start_metrics_server(port=metrics_port, host="127.0.0.1")
         print(
             Fore.GREEN
-            + f"[+] Prometheus metrics available at http://0.0.0.0:{metrics_port}/metrics"
+            + f"[+] Prometheus metrics available at http://127.0.0.1:{metrics_port}/metrics"
             + Style.RESET_ALL
         )
     except Exception as e:
@@ -580,15 +768,33 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
 
     print(Fore.GREEN + f"[+] MiragePot listening on {host}:{port}" + Style.RESET_ALL)
 
+    # P2-06: Pre-check rate limiter before spawning a thread so we never allocate a
+    # thread for a connection that will be immediately rejected.
+    _rate_limiter = get_rate_limiter()
+
     try:
         while True:
             client, addr = sock.accept()
             LOGGER.debug(
                 "=== SOCKET ACCEPT === New TCP connection from %s:%s", addr[0], addr[1]
             )
+            # P2-06: Check rate limit before creating a thread
+            _can_accept, _reason = _rate_limiter.can_accept_connection(addr[0])
+            if not _can_accept:
+                LOGGER.warning(
+                    "Connection from %s:%s rejected before thread: %s",
+                    addr[0],
+                    addr[1],
+                    _reason,
+                )
+                try:
+                    client.close()
+                except Exception:
+                    pass
+                continue
             thread = threading.Thread(
                 target=_handle_client,
-                args=(client, addr, host_key),
+                args=(client, addr, host_key, all_host_keys),
                 daemon=True,
             )
             thread.start()
@@ -618,16 +824,21 @@ class HoneypotServer:
         self._socket: Optional[socket.socket] = None
         self._running = False
         self._host_key = get_or_create_host_key()
+        # P2-07: Load all key types for multi-algorithm support.
+        self._all_host_keys = get_all_host_keys()
         self._threads: list = []
 
     def run(self) -> None:
         """Start the honeypot server and block until stopped."""
-        # Start Prometheus metrics server
+        # P5-03: Rotate old session logs at startup.
+        _rotate_logs(LOG_DIR)
+
+        # P4-05: Bind metrics server to loopback only.
         metrics_port = 9090
         try:
-            start_metrics_server(port=metrics_port, host="0.0.0.0")
+            start_metrics_server(port=metrics_port, host="127.0.0.1")
             LOGGER.info(
-                "Prometheus metrics available at http://0.0.0.0:%d/metrics",
+                "Prometheus metrics available at http://127.0.0.1:%d/metrics",
                 metrics_port,
             )
         except Exception as e:
@@ -654,6 +865,9 @@ class HoneypotServer:
         cleanup_thread = threading.Thread(target=self._cleanup_threads, daemon=True)
         cleanup_thread.start()
 
+        # P2-06: Pre-check rate limiter before spawning a thread.
+        _rate_limiter = get_rate_limiter()
+
         try:
             while self._running:
                 try:
@@ -664,9 +878,23 @@ class HoneypotServer:
                         addr[0],
                         addr[1],
                     )
+                    # P2-06: Check rate limit before creating a thread
+                    _can_accept, _reason = _rate_limiter.can_accept_connection(addr[0])
+                    if not _can_accept:
+                        LOGGER.warning(
+                            "Connection from %s:%s rejected before thread: %s",
+                            addr[0],
+                            addr[1],
+                            _reason,
+                        )
+                        try:
+                            client.close()
+                        except Exception:
+                            pass
+                        continue
                     thread = threading.Thread(
                         target=_handle_client,
-                        args=(client, addr, self._host_key),
+                        args=(client, addr, self._host_key, self._all_host_keys),
                         daemon=True,
                     )
                     thread.start()

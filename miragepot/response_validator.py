@@ -124,6 +124,21 @@ AI_REVELATION_PHRASES = [
     "here is",
     "here's",
     "here are",
+    # P3-11: Backend technology identifiers that must never appear in shell output
+    "ollama",
+    "phi3",
+    "phi-3",
+    "mistral",
+    "llama",
+    "llm",
+    "language model",
+    "neural network",
+    "neural net",
+    "transformer model",
+    "token",
+    "prompt",
+    "inference",
+    "miragepot",
 ]
 
 # Phrases that indicate conversational/explanatory response
