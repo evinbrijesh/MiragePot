@@ -597,10 +597,17 @@ def handle_find_command(
 
     results = []
 
+    # P1.1-06: Use a proper directory prefix check to avoid matching paths that
+    # merely share a string prefix (e.g. "/proc" matching a search under "/pro").
+    # A path belongs under start_path only if it equals start_path or starts
+    # with start_path + "/" (the directory separator).
+    def _under(path: str) -> bool:
+        return path == start_path or path.startswith(start_path + "/")
+
     # Find matching directories
     if type_filter != "f":
         for d in sorted(directories):
-            if d.startswith(start_path):
+            if _under(d):
                 name = d.split("/")[-1]
                 if name_pattern is None or fnmatch.fnmatch(name, name_pattern):
                     results.append(d)
@@ -608,7 +615,7 @@ def handle_find_command(
     # Find matching files
     if type_filter != "d":
         for f in sorted(files.keys()):
-            if f.startswith(start_path):
+            if _under(f):
                 name = f.split("/")[-1]
                 if name_pattern is None or fnmatch.fnmatch(name, name_pattern):
                     results.append(f)

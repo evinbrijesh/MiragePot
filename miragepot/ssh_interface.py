@@ -410,7 +410,11 @@ class SSHServer(paramiko.ServerInterface):
         return AUTH_FAILED
 
     def get_allowed_auths(self, username: str) -> str:
-        return "password,publickey"
+        # P2-08: Only advertise password auth.  Advertising publickey causes
+        # many clients to attempt key-based auth first, reducing the password
+        # credentials we can capture.  check_auth_publickey() still records any
+        # pubkey attempts that clients make unsolicited.
+        return "password"
 
     def check_channel_pty_request(
         self,

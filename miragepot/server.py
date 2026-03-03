@@ -27,7 +27,7 @@ from typing import Any, Dict, List, Optional, cast
 import paramiko
 from colorama import Fore, Style, init as colorama_init
 
-from .command_handler import handle_command, init_session_state
+from .command_handler import handle_command, init_session_state, EXIT_SENTINEL
 from .defense_module import calculate_threat_score, apply_tarpit
 from .ssh_interface import (
     SSHServer,
@@ -292,9 +292,10 @@ def _handle_client(
     except Exception as e:
         LOGGER.warning("Failed to configure client socket: %s", e)
 
-    # Rate limiting check
+    # P5-05: Atomically check + register in one lock acquisition to eliminate
+    # the TOCTOU race between can_accept_connection and register_connection.
     rate_limiter = get_rate_limiter()
-    can_accept, reason = rate_limiter.can_accept_connection(attacker_ip)
+    can_accept, reason = rate_limiter.check_and_register(attacker_ip)
     if not can_accept:
         LOGGER.warning(
             "Connection from %s:%s rejected: %s", attacker_ip, attacker_port, reason
@@ -307,12 +308,10 @@ def _handle_client(
             LOGGER.debug("Error closing rejected client socket: %s", close_exc)
         return
 
-    # Record successful connection
+    # Connection accepted and already registered by check_and_register
     metrics.record_connection_attempt("success")
     metrics.record_attacker_ip(attacker_ip)
 
-    # Register the connection
-    rate_limiter.register_connection(attacker_ip)
     LOGGER.debug(
         "Rate limiter: ACCEPTED connection from %s:%s", attacker_ip, attacker_port
     )
@@ -600,7 +599,7 @@ def _handle_client(
                         response = f"bash: {_safe_log(_first)}: command not found\n"
 
                     # Special token indicating the session should close
-                    if response == "__MIRAGEPOT_EXIT__":
+                    if response == EXIT_SENTINEL:
                         _append_command(
                             session_log,
                             {

@@ -596,17 +596,39 @@ def render_filters_panel(sessions: List[Dict[str, Any]]) -> Tuple[List[Dict], Di
         filtered = [s for s in filtered if len(s.get("commands", [])) >= min_commands]
 
     if command_search:
-        try:
-            pattern = re.compile(command_search, re.IGNORECASE)
-            filtered = [
-                s
-                for s in filtered
-                if any(
-                    pattern.search(c.get("command", "")) for c in s.get("commands", [])
-                )
-            ]
-        except re.error:
-            st.warning("Invalid regex pattern")
+        # P4-11: Guard against ReDoS by (a) capping pattern length so catastrophic
+        # patterns cannot be submitted, and (b) compiling+running the regex inside a
+        # short-lived thread so a runaway match times out instead of hanging the UI.
+        _MAX_PATTERN_LEN = 200
+        if len(command_search) > _MAX_PATTERN_LEN:
+            st.warning(f"Search pattern too long (max {_MAX_PATTERN_LEN} characters).")
+        else:
+            try:
+                pattern = re.compile(command_search, re.IGNORECASE)
+
+                def _match_sessions(_pattern: re.Pattern, _sessions: list) -> list:
+                    return [
+                        s
+                        for s in _sessions
+                        if any(
+                            _pattern.search(c.get("command", ""))
+                            for c in s.get("commands", [])
+                        )
+                    ]
+
+                import concurrent.futures as _cf
+
+                with _cf.ThreadPoolExecutor(max_workers=1) as _ex:
+                    _fut = _ex.submit(_match_sessions, pattern, filtered)
+                    try:
+                        filtered = _fut.result(timeout=2.0)
+                    except _cf.TimeoutError:
+                        _fut.cancel()
+                        st.warning(
+                            "Search timed out — pattern may be too complex. Try a simpler regex."
+                        )
+            except re.error:
+                st.warning("Invalid regex pattern")
 
     # Tagging section
     st.markdown("### Session Tags")

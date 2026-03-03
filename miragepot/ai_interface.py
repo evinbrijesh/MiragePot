@@ -13,6 +13,7 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import re
 import subprocess
 import time
 from pathlib import Path
@@ -145,20 +146,54 @@ def check_ollama_connection() -> bool:
         return False
 
 
+def _sanitize_path_entry(name: str, max_len: int = 100) -> str:
+    """Sanitize an attacker-controlled filename or directory name for LLM prompt inclusion.
+
+    Strips non-printable/control characters (including ANSI escapes), replaces
+    unprintable bytes with '?', and truncates to *max_len* characters so that a
+    crafted name cannot inject LLM instructions or blow up the context window.
+
+    P3-15: Attacker-controlled file/dir names must not reach the LLM verbatim.
+    """
+    import unicodedata
+
+    # Remove ANSI escape sequences (ESC [ … m and similar)
+    name = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", name)
+    # Keep only printable, non-control Unicode characters
+    cleaned = "".join(
+        ch
+        for ch in name
+        if unicodedata.category(ch)[0] != "C"  # skip all control chars
+    )
+    # Truncate
+    return cleaned[:max_len] if cleaned else "(empty)"
+
+
 def build_user_prompt(command: str, session_state: Dict[str, Any]) -> str:
     """Construct the user-side prompt for the LLM.
 
     We include a light summary of session state so the model can
     maintain plausible continuity (current directory, known files/dirs).
+
+    P3-15: Attacker-controlled directory/file names are sanitized before being
+    embedded in the prompt to prevent prompt-injection via crafted filenames.
     """
     cwd = session_state.get("cwd", "/root")
     directories = list(session_state.get("directories", []))
     files = session_state.get("files", {})
 
+    # P3-15: sanitize every attacker-supplied name; cap list sizes so the prompt
+    # cannot grow unboundedly if the attacker creates many fake paths.
+    _MAX_ENTRIES = 50
+    sanitized_dirs = sorted(_sanitize_path_entry(d) for d in directories[:_MAX_ENTRIES])
+    sanitized_files = [
+        _sanitize_path_entry(f) for f in list(files.keys())[:_MAX_ENTRIES]
+    ]
+
     state_summary = {
         "cwd": cwd,
-        "directories": sorted(directories),
-        "files": list(files.keys()),
+        "directories": sanitized_dirs,
+        "files": sanitized_files,
     }
 
     return (
@@ -421,7 +456,11 @@ def query_llm(
         content = _clean_llm_response(content, command)
 
         # Apply advanced validation and anti-hallucination guardrails
-        validation_result = validate_response(content, command, session_state)
+        # P3-07: Pass the system prompt so the validator can detect verbatim
+        # reproduction in the response (prompt-leakage / prompt-injection).
+        validation_result = validate_response(
+            content, command, session_state, system_prompt=system_prompt
+        )
 
         if not validation_result.is_valid:
             LOGGER.warning(

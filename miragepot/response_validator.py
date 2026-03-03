@@ -231,6 +231,7 @@ def validate_response(
     response: str,
     command: str,
     session_state: Dict[str, Any],
+    system_prompt: Optional[str] = None,
 ) -> ValidationResult:
     """Validate and potentially correct an LLM response.
 
@@ -238,6 +239,8 @@ def validate_response(
         response: The LLM's response
         command: The command that was executed
         session_state: Current session state with filesystem info
+        system_prompt: Optional system prompt text; used by P3-07 to detect
+            verbatim system-prompt reproduction in the response.
 
     Returns:
         ValidationResult with validation status and corrected response
@@ -270,6 +273,27 @@ def validate_response(
                 issues=issues,
                 was_modified=True,
             )
+
+    # Check 1b (P3-07): Reject responses that reproduce large verbatim chunks of
+    # the system prompt.  A successful prompt-injection / prompt-leakage attack
+    # may cause the LLM to quote its own instructions.  We slide a window of
+    # _PROMPT_NGRAM_LEN characters across the system prompt and check whether
+    # any such n-gram appears in the response.
+    if system_prompt:
+        _PROMPT_NGRAM_LEN = 30  # 30 consecutive chars is very unlikely by chance
+        sp_lower = system_prompt.lower()
+        resp_lower_check = response.lower()
+        for i in range(len(sp_lower) - _PROMPT_NGRAM_LEN):
+            ngram = sp_lower[i : i + _PROMPT_NGRAM_LEN]
+            # Skip ngrams that are all whitespace or very common phrases
+            if ngram.strip() and ngram in resp_lower_check:
+                issues.append("System prompt reproduction detected")
+                return ValidationResult(
+                    is_valid=False,
+                    response=_generate_safe_fallback(command, session_state),
+                    issues=issues,
+                    was_modified=True,
+                )
 
     # Check 2: Conversational starters
     for starter in CONVERSATIONAL_STARTERS:

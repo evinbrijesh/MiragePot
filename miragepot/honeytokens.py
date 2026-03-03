@@ -15,7 +15,7 @@ Key features:
 from __future__ import annotations
 
 import hashlib
-import random
+import hmac
 import secrets
 import string
 import time
@@ -109,15 +109,54 @@ def generate_session_id() -> str:
     return secrets.token_hex(8)
 
 
+# ---------------------------------------------------------------------------
+# P5-08: Cryptographically-sound token helpers
+#
+# Using random.Random(seed) with a predictable seed (the session ID) meant
+# that anyone who knew the session ID could deterministically reproduce every
+# honeytoken value — completely defeating their purpose.
+#
+# We now derive per-token bytes from HMAC-SHA256(key=session_id, msg=purpose).
+# The resulting tokens are still deterministic for the same session (so the
+# filesystem layer always returns consistent values) but are
+# cryptographically unpredictable without knowledge of the session ID.
+# ---------------------------------------------------------------------------
+
+
+def _token_bytes(session_id: str, purpose: str, n: int) -> bytes:
+    """Return *n* pseudo-random bytes derived from session_id and purpose.
+
+    Stretches the HMAC digest by repeatedly hashing (counter mode) so we can
+    produce arbitrary amounts of deterministic-but-unpredictable output.
+    """
+    result = bytearray()
+    counter = 0
+    while len(result) < n:
+        h = hmac.new(
+            session_id.encode(),
+            msg=f"{purpose}:{counter}".encode(),
+            digestmod=hashlib.sha256,
+        ).digest()
+        result.extend(h)
+        counter += 1
+    return bytes(result[:n])
+
+
+def _token_chars(session_id: str, purpose: str, alphabet: str, length: int) -> str:
+    """Return a string of *length* characters from *alphabet*, derived from HMAC."""
+    raw = _token_bytes(session_id, purpose, length * 2)  # extra bytes for modulo bias
+    mod = len(alphabet)
+    return "".join(alphabet[b % mod] for b in raw[:length])
+
+
 def generate_aws_access_key(session_id: str) -> str:
     """Generate a fake AWS access key ID.
 
     Format: AKIA + 16 uppercase alphanumeric characters
     The key includes session-specific entropy for uniqueness.
     """
-    rng = random.Random(f"{session_id}_aws_access")
     chars = string.ascii_uppercase + string.digits
-    suffix = "".join(rng.choices(chars, k=16))
+    suffix = _token_chars(session_id, "aws_access", chars, 16)
     return f"AKIA{suffix}"
 
 
@@ -126,9 +165,8 @@ def generate_aws_secret_key(session_id: str) -> str:
 
     Format: 40 character base64-like string
     """
-    rng = random.Random(f"{session_id}_aws_secret")
     chars = string.ascii_letters + string.digits + "+/"
-    return "".join(rng.choices(chars, k=40))
+    return _token_chars(session_id, "aws_secret", chars, 40)
 
 
 def generate_api_key(session_id: str, service: str = "internal") -> str:
@@ -136,8 +174,6 @@ def generate_api_key(session_id: str, service: str = "internal") -> str:
 
     Format: prefix_base64string (e.g., api_key_xxx, sk_live_xxx)
     """
-    rng = random.Random(f"{session_id}_api_{service}")
-
     # Different prefixes for different "services"
     prefixes = {
         "internal": "api_key_",
@@ -150,7 +186,7 @@ def generate_api_key(session_id: str, service: str = "internal") -> str:
     prefix = prefixes.get(service, "api_")
 
     chars = string.ascii_letters + string.digits
-    suffix = "".join(rng.choices(chars, k=32))
+    suffix = _token_chars(session_id, f"api_{service}", chars, 32)
     return f"{prefix}{suffix}"
 
 
@@ -158,22 +194,40 @@ def generate_password(session_id: str, context: str = "default") -> str:
     """Generate a realistic-looking fake password.
 
     Passwords look human-created (memorable patterns) to be more believable.
+    P5-08: Derived from HMAC so they are unpredictable without the session ID.
     """
-    rng = random.Random(f"{session_id}_password_{context}")
+    # Pick a pattern deterministically from the HMAC output
+    raw = _token_bytes(session_id, f"password_{context}", 8)
+    pattern_idx = raw[0] % 4
+    num_small = int.from_bytes(raw[1:3], "big") % 9900 + 100  # 100-9999
+    num_year = int.from_bytes(raw[3:5], "big") % 6 + 2020  # 2020-2025
+    num_tiny = int.from_bytes(raw[5:7], "big") % 999 + 1  # 1-999
+    num_mid = int.from_bytes(raw[6:8], "big") % 900 + 100  # 100-999
 
-    # Common password patterns that look human-created
-    patterns = [
-        # Word + numbers + special
-        lambda: f"{rng.choice(['Admin', 'User', 'Password', 'Secret', 'Root', 'System', 'Server'])}{rng.randint(100, 9999)}{rng.choice(['!', '@', '#', '$'])}",
-        # Word + year + special
-        lambda: f"{rng.choice(['Summer', 'Winter', 'Spring', 'Fall', 'Company', 'Project'])}{rng.randint(2020, 2025)}{rng.choice(['!', '@', '#'])}",
-        # CamelCase + numbers
-        lambda: f"{rng.choice(['MySecret', 'P@ssw0rd', 'Qwerty', 'Welcome', 'Changeme'])}{rng.randint(1, 999)}",
-        # Keyboard pattern + numbers
-        lambda: f"{rng.choice(['Qwerty', 'Asdfgh', 'Zxcvbn'])}{rng.randint(100, 999)}{rng.choice(['!', '123', '@'])}",
-    ]
+    words_main = ["Admin", "User", "Password", "Secret", "Root", "System", "Server"]
+    words_season = ["Summer", "Winter", "Spring", "Fall", "Company", "Project"]
+    words_camel = ["MySecret", "P@ssw0rd", "Qwerty", "Welcome", "Changeme"]
+    words_kbd = ["Qwerty", "Asdfgh", "Zxcvbn"]
+    specials = ["!", "@", "#", "$"]
+    specials3 = ["!", "@", "#"]
+    appends = ["!", "123", "@"]
 
-    return rng.choice(patterns)()
+    w_main = words_main[raw[0] % len(words_main)]
+    w_season = words_season[raw[1] % len(words_season)]
+    w_camel = words_camel[raw[2] % len(words_camel)]
+    w_kbd = words_kbd[raw[3] % len(words_kbd)]
+    sp = specials[raw[4] % len(specials)]
+    sp3 = specials3[raw[5] % len(specials3)]
+    ap = appends[raw[6] % len(appends)]
+
+    if pattern_idx == 0:
+        return f"{w_main}{num_small}{sp}"
+    elif pattern_idx == 1:
+        return f"{w_season}{num_year}{sp3}"
+    elif pattern_idx == 2:
+        return f"{w_camel}{num_tiny}"
+    else:
+        return f"{w_kbd}{num_mid}{ap}"
 
 
 def generate_database_password(session_id: str) -> str:
@@ -183,9 +237,8 @@ def generate_database_password(session_id: str) -> str:
 
 def generate_jwt_secret(session_id: str) -> str:
     """Generate a fake JWT secret key."""
-    rng = random.Random(f"{session_id}_jwt")
     chars = string.ascii_letters + string.digits
-    return "".join(rng.choices(chars, k=64))
+    return _token_chars(session_id, "jwt", chars, 64)
 
 
 def generate_github_token(session_id: str) -> str:
@@ -193,9 +246,8 @@ def generate_github_token(session_id: str) -> str:
 
     Format: ghp_ + 36 alphanumeric characters (classic token format)
     """
-    rng = random.Random(f"{session_id}_github")
     chars = string.ascii_letters + string.digits
-    suffix = "".join(rng.choices(chars, k=36))
+    suffix = _token_chars(session_id, "github", chars, 36)
     return f"ghp_{suffix}"
 
 
@@ -204,12 +256,11 @@ def generate_slack_token(session_id: str) -> str:
 
     Format: xoxb- + groups of alphanumeric characters
     """
-    rng = random.Random(f"{session_id}_slack")
     chars = string.ascii_letters + string.digits
     parts = [
-        "".join(rng.choices(chars, k=12)),
-        "".join(rng.choices(chars, k=12)),
-        "".join(rng.choices(chars, k=24)),
+        _token_chars(session_id, "slack_p1", chars, 12),
+        _token_chars(session_id, "slack_p2", chars, 12),
+        _token_chars(session_id, "slack_p3", chars, 24),
     ]
     return f"xoxb-{'-'.join(parts)}"
 
@@ -219,10 +270,9 @@ def generate_stripe_key(session_id: str, live: bool = True) -> str:
 
     Format: sk_live_ or sk_test_ + 24 alphanumeric characters
     """
-    rng = random.Random(f"{session_id}_stripe")
     prefix = "sk_live_" if live else "sk_test_"
     chars = string.ascii_letters + string.digits
-    suffix = "".join(rng.choices(chars, k=24))
+    suffix = _token_chars(session_id, "stripe", chars, 24)
     return f"{prefix}{suffix}"
 
 
@@ -231,13 +281,9 @@ def generate_ssh_private_key_snippet(session_id: str) -> str:
 
     This looks like a real key but is not valid.
     """
-    rng = random.Random(f"{session_id}_ssh")
-
     # Generate fake base64 content
     chars = string.ascii_letters + string.digits + "+/"
-    lines = []
-    for _ in range(5):
-        lines.append("".join(rng.choices(chars, k=64)))
+    lines = [_token_chars(session_id, f"ssh_line{i}", chars, 64) for i in range(5)]
 
     return f"""-----BEGIN OPENSSH PRIVATE KEY-----
 {lines[0]}

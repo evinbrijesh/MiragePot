@@ -138,8 +138,103 @@ class RateLimiter:
 
             return True
 
+    def check_and_register(self, ip: str) -> tuple[bool, str]:
+        """Atomically check whether a connection is allowed and register it if so.
+
+        P5-05: Combining the check and the registration into a single lock
+        acquisition eliminates the TOCTOU race where a connection passes
+        ``can_accept_connection`` but then races with another thread that
+        registers first, pushing the per-IP or global count over the limit.
+
+        Args:
+            ip: IP address attempting to connect
+
+        Returns:
+            Tuple of (accepted, reason).  If *accepted* is True the connection
+            has already been registered and the caller must call
+            ``unregister_connection`` when it closes.  If *accepted* is False
+            nothing was registered.
+        """
+        with self._lock:
+            LOGGER.debug(
+                "Rate limiter checking IP: %s (current active: %d/%d total)",
+                ip,
+                self._active_count,
+                self.max_total_connections,
+            )
+
+            # Check if IP is blocked
+            if ip in self._connections:
+                info = self._connections[ip]
+                LOGGER.debug(
+                    "IP %s - existing connections: %d/%d, blocked_until: %s",
+                    ip,
+                    info.count,
+                    self.max_connections_per_ip,
+                    info.blocked_until,
+                )
+                if info.blocked_until and time.time() < info.blocked_until:
+                    remaining = int(info.blocked_until - time.time())
+                    LOGGER.warning(
+                        "IP %s is BLOCKED for %d more seconds", ip, remaining
+                    )
+                    return (
+                        False,
+                        f"IP {ip} is blocked for {remaining} more seconds",
+                    )
+
+            # Check global connection limit
+            if self._active_count >= self.max_total_connections:
+                LOGGER.warning(
+                    "Global connection limit reached: %d/%d",
+                    self._active_count,
+                    self.max_total_connections,
+                )
+                return (
+                    False,
+                    f"Maximum total connections ({self.max_total_connections}) reached",
+                )
+
+            # Check per-IP limit
+            if ip in self._connections:
+                info = self._connections[ip]
+                if info.count >= self.max_connections_per_ip:
+                    # Block this IP
+                    info.blocked_until = time.time() + self.block_duration
+                    LOGGER.warning(
+                        "IP %s exceeded connection limit (%d), blocking for %d seconds",
+                        ip,
+                        self.max_connections_per_ip,
+                        self.block_duration,
+                    )
+                    return (
+                        False,
+                        f"Too many connections from {ip}. Blocked for {self.block_duration} seconds.",
+                    )
+
+            # All checks passed — register the connection atomically
+            if ip not in self._connections:
+                self._connections[ip] = ConnectionInfo(ip=ip)
+
+            info = self._connections[ip]
+            info.count += 1
+            info.last_seen = time.time()
+            self._active_count += 1
+
+            LOGGER.info(
+                "Connection from %s registered (active: %d from this IP, %d total)",
+                ip,
+                info.count,
+                self._active_count,
+            )
+            return (True, "")
+
     def can_accept_connection(self, ip: str) -> tuple[bool, str]:
         """Check if a new connection from this IP should be accepted.
+
+        .. deprecated::
+            Prefer :meth:`check_and_register` which combines this check with
+            connection registration in a single atomic operation (P5-05).
 
         Args:
             ip: IP address attempting to connect

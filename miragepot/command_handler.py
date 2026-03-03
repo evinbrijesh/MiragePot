@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import secrets
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, cast
@@ -83,6 +84,11 @@ DATA_DIR = Path(__file__).resolve().parents[1] / "data"
 CACHE_PATH = DATA_DIR / "cache.json"
 
 LOGGER = logging.getLogger(__name__)
+
+# P3-14: Per-process exit sentinel — a random token generated at import time so
+# that an attacker who knows the source code cannot predict or forge it.
+# server.py imports this constant to recognise the exit signal.
+EXIT_SENTINEL: str = "__exit_" + secrets.token_hex(8) + "__"
 
 
 # Known valid Linux commands (subset) - commands that exist on a typical system
@@ -790,6 +796,9 @@ def init_session_state() -> Dict[str, Any]:
         "/opt",
         "/opt/backup",
         "/proc",
+        # P1.1-03: /proc/self pseudo-directory
+        "/proc/self",
+        "/dev",
         # /root directory (admin home)
         "/root",
         "/root/.aws",
@@ -1514,6 +1523,19 @@ def init_session_state() -> Dict[str, Any]:
         ),
         "/proc/uptime": "3640500.00 7136180.00\n",
         "/proc/loadavg": "0.15 0.10 0.05 1/234 5678\n",
+        # P1.1-03: /proc/self pseudo-files — empty cmdline (process name hidden)
+        # and a sanitised environ with no real host secrets.
+        "/proc/self/cmdline": "bash\x00",
+        "/proc/self/environ": (
+            "HOME=/root\x00"
+            "TERM=xterm-256color\x00"
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\x00"
+            "SHELL=/bin/bash\x00"
+            "LANG=en_US.UTF-8\x00"
+        ),
+        # P1.1-03: /dev/null and /dev/zero — always empty reads, accept any writes
+        "/dev/null": "",
+        "/dev/zero": "",
     }
 
     return {
@@ -2134,6 +2156,19 @@ def _generate_rsync_response(attempt: DownloadAttempt, state: Dict[str, Any]) ->
 """
 
 
+def _cmd_matches(stripped: str, name: str) -> bool:
+    """Return True if ``stripped`` starts with command ``name`` at a word boundary.
+
+    P1.1-04: Plain ``startswith()`` checks like ``stripped.startswith("cd")``
+    match unrelated commands such as ``cdrom``, ``lsattr``, or ``psql``.  This
+    helper ensures the character immediately following the command name is either
+    a space (arguments follow) or end-of-string (bare command).
+    """
+    if stripped == name:
+        return True
+    return stripped.startswith(name + " ")
+
+
 def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     """Handle built-in filesystem-related commands.
 
@@ -2179,11 +2214,11 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     if stripped == "pwd":
         return True, _handle_pwd(state)
 
-    if stripped.startswith("cd"):
+    if _cmd_matches(stripped, "cd"):
         args = stripped[2:].strip()
         return True, _handle_cd(args, state)
 
-    if stripped.startswith("mkdir"):
+    if _cmd_matches(stripped, "mkdir"):
         args = stripped[5:].strip()
         return True, _handle_mkdir(args, state)
 
@@ -2191,15 +2226,15 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
         args = stripped[6:].strip()
         return True, _handle_touch(args, state)
 
-    if stripped.startswith("ls"):
+    if _cmd_matches(stripped, "ls"):
         args = stripped[2:].strip()
         return True, _handle_ls(args, state)
 
-    if stripped.startswith("cat"):
+    if _cmd_matches(stripped, "cat"):
         args = stripped[3:].strip()
         return True, _handle_cat(args, state)
 
-    if stripped.startswith("rm"):
+    if _cmd_matches(stripped, "rm"):
         args = stripped[2:].strip()
         return True, _handle_rm(args, state)
 
@@ -2216,7 +2251,7 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
         args = stripped[6:].strip()
         return True, handle_chown_command(args, state)
 
-    if stripped.startswith("find"):
+    if _cmd_matches(stripped, "find"):
         args = stripped[4:].strip()
         return True, handle_find_command(args, state)
 
@@ -2228,19 +2263,19 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     else:
         sys_state = cast(SystemState, sys_state_raw)
 
-    if stripped.startswith("ps"):
+    if _cmd_matches(stripped, "ps"):
         args = stripped[2:].strip()
         return True, handle_ps_command(args, sys_state)
 
-    if stripped.startswith("netstat"):
+    if _cmd_matches(stripped, "netstat"):
         args = stripped[7:].strip()
         return True, handle_netstat_command(args, sys_state)
 
-    if stripped.startswith("ss"):
+    if _cmd_matches(stripped, "ss"):
         args = stripped[2:].strip()
         return True, handle_ss_command(args, sys_state)
 
-    if stripped.startswith("free"):
+    if _cmd_matches(stripped, "free"):
         args = stripped[4:].strip()
         return True, handle_free_command(args, sys_state)
 
@@ -2253,14 +2288,14 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     if stripped == "who":
         return True, handle_who_command(sys_state)
 
-    if stripped.startswith("id"):
+    if _cmd_matches(stripped, "id"):
         args = stripped[2:].strip()
         return True, handle_id_command(args, state)
 
     if stripped == "hostname":
         return True, handle_hostname_command()
 
-    if stripped.startswith("uname"):
+    if _cmd_matches(stripped, "uname"):
         args = stripped[5:].strip()
         return True, handle_uname_command(args)
 
@@ -2356,38 +2391,72 @@ def _has_suspicious_encoding(command: str) -> bool:
     - Base64-like strings in unusual places
     - URL encoding in commands
     - Unicode characters mixed with ASCII in suspicious ways
+    - P3-05: Hex-encoded and URL-encoded injection keywords
     """
+    import base64 as _base64
+    import binascii as _binascii
+    from urllib.parse import unquote as _unquote
+
+    _INJECTION_KEYWORDS = [
+        "ignore",
+        "system",
+        "pretend",
+        "instruction",
+        "roleplay",
+        "forget",
+        "jailbreak",
+        "override",
+        "disregard",
+    ]
+
+    def _contains_injection(text: str) -> bool:
+        lower = text.lower()
+        return any(kw in lower for kw in _INJECTION_KEYWORDS)
+
     # Count escape sequences
     escape_count = command.count("\\x") + command.count("\\u") + command.count("%")
     if len(command) > 10 and escape_count > len(command) * 0.1:
         return True
 
     # Check for base64-like strings (at least 20 chars of base64 alphabet)
-    import re
-
     base64_pattern = r"[A-Za-z0-9+/=]{20,}"
     base64_matches = re.findall(base64_pattern, command)
     for match in base64_matches:
         # Try to decode and check for injection keywords
         try:
-            import base64
-
-            decoded = base64.b64decode(match).decode("utf-8", errors="ignore").lower()
-            injection_keywords = [
-                "ignore",
-                "system",
-                "pretend",
-                "instruction",
-                "roleplay",
-                "forget",
-            ]
-            if any(kw in decoded for kw in injection_keywords):
+            decoded = _base64.b64decode(match).decode("utf-8", errors="ignore")
+            if _contains_injection(decoded):
                 return True
         except Exception as exc:
             LOGGER.warning(
                 "Unicode injection check failed, treating as suspicious: %s", exc
             )
             return True  # fail closed — safer than fail open
+
+    # P3-05: Check for hex-encoded strings (\x41\x42... or $'\x41')
+    hex_escape_pattern = r"(?:\\x[0-9a-fA-F]{2}){4,}"
+    hex_matches = re.findall(hex_escape_pattern, command)
+    for match in hex_matches:
+        try:
+            # Extract the hex bytes and decode
+            hex_bytes = bytes(int(h, 16) for h in re.findall(r"[0-9a-fA-F]{2}", match))
+            decoded = hex_bytes.decode("utf-8", errors="ignore")
+            if _contains_injection(decoded):
+                return True
+        except Exception:
+            pass
+
+    # P3-05: Check for URL-encoded strings (%69%67%6e%6f%72%65 = "ignore")
+    # Only check if there are at least 4 consecutive percent-encoded bytes
+    url_pattern = r"(?:%[0-9a-fA-F]{2}){4,}"
+    url_matches = re.findall(url_pattern, command)
+    for match in url_matches:
+        try:
+            decoded = _unquote(match)
+            if _contains_injection(decoded):
+                return True
+        except Exception:
+            pass
 
     # Check for excessive unicode characters (potential homoglyph attack)
     non_ascii_count = sum(1 for c in command if ord(c) > 127)
@@ -2659,8 +2728,8 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
 
     if cmd in ("exit", "logout"):
         # Signal upstream that session should close by returning
-        # a specific token. The caller can treat it specially.
-        return "__MIRAGEPOT_EXIT__"
+        # the per-process exit sentinel (P3-14).
+        return EXIT_SENTINEL
 
     # Extract the command name (first word)
     first_word = _get_first_word(cmd)
