@@ -15,6 +15,7 @@ import json
 import logging
 import re
 import subprocess
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
@@ -45,6 +46,7 @@ def _get_model() -> str:
 _ollama_verified = False
 _ollama_last_check = 0.0
 _OLLAMA_CHECK_INTERVAL = 30.0  # Re-check every 30 seconds if previously failed
+_ollama_lock = threading.Lock()  # H2: protect _ollama_verified/_ollama_last_check
 
 
 def _load_system_prompt() -> str:
@@ -84,16 +86,17 @@ def check_ollama_connection() -> bool:
         LOGGER.warning("ollama package not installed")
         return False
 
-    # Use cached result if we checked recently
-    now = time.time()
-    if _ollama_verified and (now - _ollama_last_check) < _OLLAMA_CHECK_INTERVAL:
-        return True
+    with _ollama_lock:
+        # Use cached result if we checked recently
+        now = time.time()
+        if _ollama_verified and (now - _ollama_last_check) < _OLLAMA_CHECK_INTERVAL:
+            return True
 
-    # If we failed recently, don't retry too often
-    if not _ollama_verified and (now - _ollama_last_check) < _OLLAMA_CHECK_INTERVAL:
-        return False
+        # If we failed recently, don't retry too often
+        if not _ollama_verified and (now - _ollama_last_check) < _OLLAMA_CHECK_INTERVAL:
+            return False
 
-    _ollama_last_check = now
+        _ollama_last_check = now
 
     try:
         # Try to list models to verify connection
@@ -102,21 +105,19 @@ def check_ollama_connection() -> bool:
         models_list = getattr(models, "models", None) or models.get("models", [])
         model_names = []
         for m in models_list:
-            # Support both attribute access (.model) and dict access (.get("name"))
-            name = (
-                getattr(m, "model", None) or m.get("name", "")
-                if hasattr(m, "get")
-                else ""
+            # C2: Fix operator precedence — getattr branch was unreachable before
+            # because `(getattr(...) or dict.get(...)) if hasattr(m, "get") else ""`
+            # always took the hasattr branch for typed objects.
+            name = getattr(m, "model", None) or (
+                m.get("name", "") if hasattr(m, "get") else ""
             )
             if name:
                 model_names.append(name.split(":")[0])
 
         full_model_names = []
         for m in models_list:
-            name = (
-                getattr(m, "model", None) or m.get("name", "")
-                if hasattr(m, "get")
-                else ""
+            name = getattr(m, "model", None) or (
+                m.get("name", "") if hasattr(m, "get") else ""
             )
             if name:
                 full_model_names.append(name)
@@ -133,23 +134,28 @@ def check_ollama_connection() -> bool:
                 _get_model(),
             )
             # Still mark as verified - we'll try anyway and let ollama auto-pull if configured
-            _ollama_verified = True
+            with _ollama_lock:
+                _ollama_verified = True
             return True
 
-        _ollama_verified = True
+        with _ollama_lock:
+            _ollama_verified = True
         LOGGER.info("Ollama connection verified, model '%s' available", _get_model())
         return True
 
     except Exception as exc:
         LOGGER.error("Failed to connect to Ollama: %s", exc)
-        _ollama_verified = False
+        with _ollama_lock:
+            _ollama_verified = False
         return False
 
 
 def _sanitize_path_entry(name: str, max_len: int = 100) -> str:
     """Sanitize an attacker-controlled filename or directory name for LLM prompt inclusion.
 
-    Strips non-printable/control characters (including ANSI escapes), replaces
+    Strips non-printable/control characters (including ANSI escapes), Unicode
+    format characters (zero-width spaces U+200B/C/D, right-to-left override
+    U+202E, BOM U+FEFF, and any other Cf/Cc/Cs/Co codepoints), replaces
     unprintable bytes with '?', and truncates to *max_len* characters so that a
     crafted name cannot inject LLM instructions or blow up the context window.
 
@@ -159,12 +165,18 @@ def _sanitize_path_entry(name: str, max_len: int = 100) -> str:
 
     # Remove ANSI escape sequences (ESC [ … m and similar)
     name = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", name)
-    # Keep only printable, non-control Unicode characters
-    cleaned = "".join(
-        ch
-        for ch in name
-        if unicodedata.category(ch)[0] != "C"  # skip all control chars
-    )
+    # NFKC normalisation first — converts compatibility equivalents (e.g. full-width
+    # Latin letters) to their canonical forms so that subsequent filtering sees the
+    # real characters rather than look-alike surrogates.
+    name = unicodedata.normalize("NFKC", name)
+    # Keep only characters whose Unicode general category is NOT a control or
+    # format category.  This explicitly covers:
+    #   Cc — control chars (U+0000–U+001F, U+007F–U+009F)
+    #   Cf — format chars  (zero-width spaces, RLO U+202E, BOM U+FEFF, etc.)
+    #   Cs — surrogates
+    #   Co — private use
+    #   Cn — unassigned
+    cleaned = "".join(ch for ch in name if unicodedata.category(ch)[0] not in ("C",))
     # Truncate
     return cleaned[:max_len] if cleaned else "(empty)"
 
@@ -447,7 +459,12 @@ def query_llm(
             )
             response = future.result(timeout=cfg.timeout)
         latency = time.time() - start_time
-        content: str = cast(str, response.get("message", {}).get("content", ""))
+        # C3: Typed ollama ChatResponse objects expose response.message.content;
+        # dict-style responses (older library) support .get().  Handle both.
+        if hasattr(response, "message"):
+            content = str(getattr(getattr(response, "message"), "content", "") or "")
+        else:
+            content = cast(str, response.get("message", {}).get("content", ""))
 
         # Record successful LLM request
         metrics.record_llm_request(_get_model(), "success", latency)

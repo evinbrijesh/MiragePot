@@ -92,25 +92,24 @@ AI_REVELATION_PHRASES = [
     "in a real system",
     "in a real terminal",
     "if this were real",
-    "in reality",
     "on a real server",
     "honeypot",
     "fake system",
     "fake server",
     "emulated",
     "emulation",
-    # Helpful assistant phrases
+    # Helpful assistant phrases (must be unambiguous AI-speak)
     "how can i help",
     "how may i help",
     "what can i help",
-    "is there anything",
     "would you like me to",
     "do you want me to",
     "let me help you",
     "i'd be happy to",
     "i would be happy to",
     "feel free to ask",
-    # Explanatory phrases that don't belong in terminal output
+    "is there anything",
+    # Explanatory phrases (AI explaining rather than outputting)
     "the command",
     "this command",
     "the output",
@@ -118,12 +117,11 @@ AI_REVELATION_PHRASES = [
     "note that",
     "please note",
     "keep in mind",
-    "it's important to",
-    "you should know",
     "as you can see",
     "here is",
     "here's",
     "here are",
+    "in reality",
     # P3-11: Backend technology identifiers that must never appear in shell output
     "ollama",
     "phi3",
@@ -283,7 +281,7 @@ def validate_response(
         _PROMPT_NGRAM_LEN = 30  # 30 consecutive chars is very unlikely by chance
         sp_lower = system_prompt.lower()
         resp_lower_check = response.lower()
-        for i in range(len(sp_lower) - _PROMPT_NGRAM_LEN):
+        for i in range(len(sp_lower) - _PROMPT_NGRAM_LEN + 1):
             ngram = sp_lower[i : i + _PROMPT_NGRAM_LEN]
             # Skip ngrams that are all whitespace or very common phrases
             if ngram.strip() and ngram in resp_lower_check:

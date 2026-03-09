@@ -798,7 +798,6 @@ def init_session_state() -> Dict[str, Any]:
         "/proc",
         # P1.1-03: /proc/self pseudo-directory
         "/proc/self",
-        "/dev",
         # /root directory (admin home)
         "/root",
         "/root/.aws",
@@ -2364,9 +2363,27 @@ def _has_mixed_script(text: str) -> bool:
     """P3-06: Detect suspicious mixing of Unicode scripts in a single token.
 
     Returns True if a single whitespace-separated token contains characters
-    from two or more distinct Unicode scripts (e.g., Latin + Cyrillic).
-    This is a strong indicator of a homoglyph substitution attack.
+    from more than two distinct Unicode scripts.  The threshold is set to 3+
+    (rather than 2) to avoid false positives on legitimate commands that include
+    URLs, quoted strings, or identifiers combining Latin with Greek/Math symbols
+    (e.g. variable names like ``μs``, commit messages mixing two languages, or
+    command arguments with both ASCII and a single accented character).
+
+    Real homoglyph attacks (e.g. Cyrillic 'а' substituted for Latin 'a') will
+    mix exactly two scripts — but so will many innocent inputs.  We therefore
+    also restrict detection to the specific script pairs known to produce
+    dangerous look-alikes (Latin+Cyrillic, Latin+Greek, Latin+Cherokee) and
+    fall back to the >= 3 threshold for all other combinations.
     """
+    # Script pairs known to enable homoglyph substitution attacks
+    _DANGEROUS_PAIRS: frozenset = frozenset(
+        {
+            frozenset({"LATIN", "CYRILLIC"}),
+            frozenset({"LATIN", "GREEK"}),
+            frozenset({"LATIN", "CHEROKEE"}),
+        }
+    )
+
     for token in text.split():
         scripts: set = set()
         for ch in token:
@@ -2377,9 +2394,16 @@ def _has_mixed_script(text: str) -> bool:
                 # Extract script from Unicode name (e.g., "LATIN SMALL LETTER A" → "LATIN")
                 script = name.split()[0] if name else "UNKNOWN"
                 scripts.add(script)
-        # Multiple scripts in one token is suspicious
-        if len(scripts) >= 2:
-            return True
+        if len(scripts) < 2:
+            continue
+        # Two-script tokens: only flag known dangerous homoglyph pairs
+        if len(scripts) == 2:
+            if frozenset(scripts) in _DANGEROUS_PAIRS:
+                return True
+        else:
+            # Three or more scripts in a single token is always suspicious
+            if len(scripts) >= 3:
+                return True
     return False
 
 
@@ -2427,7 +2451,7 @@ def _has_suspicious_encoding(command: str) -> bool:
             decoded = _base64.b64decode(match).decode("utf-8", errors="ignore")
             if _contains_injection(decoded):
                 return True
-        except Exception as exc:
+        except _binascii.Error as exc:
             LOGGER.warning(
                 "Unicode injection check failed, treating as suspicious: %s", exc
             )

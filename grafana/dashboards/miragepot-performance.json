@@ -149,7 +149,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 * rate(miragepot_llm_cache_hits_total[5m]) / (rate(miragepot_llm_cache_hits_total[5m]) + rate(miragepot_llm_cache_misses_total[5m]))",
+          "expr": "100 * rate(miragepot_llm_cache_hits_total[5m]) / (rate(miragepot_llm_cache_hits_total[5m]) + rate(miragepot_llm_cache_misses_total[5m]) or vector(0))",
           "refId": "A"
         }
       ],
@@ -810,7 +810,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "miragepot_llm_latency_seconds_count",
+          "expr": "rate(miragepot_llm_latency_seconds_count[5m])",
           "legendFormat": "Request count",
           "refId": "A"
         }

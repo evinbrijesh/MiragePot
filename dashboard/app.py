@@ -24,7 +24,7 @@ import hashlib
 import urllib.request
 import urllib.error
 from collections import Counter, defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -168,12 +168,20 @@ def format_duration(seconds: Optional[float]) -> str:
 
 
 def parse_timestamp(ts: str) -> Optional[datetime]:
-    """Parse ISO timestamp string."""
+    """Parse ISO timestamp string, always returning a UTC-aware datetime.
+
+    All returned datetimes are timezone-aware (UTC) so they can be safely
+    compared or subtracted without raising TypeError.
+    """
     if not ts:
         return None
     try:
-        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
-    except Exception:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        # Normalise naive datetimes (treated as UTC) to aware
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except (ValueError, TypeError, OSError):
         return None
 
 
@@ -405,17 +413,14 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
 
     if not live_sessions:
         # Show recent active sessions as approximation
-        recent_cutoff = datetime.utcnow() - timedelta(minutes=10)
+        recent_cutoff = datetime.now(timezone.utc) - timedelta(minutes=10)
         active = []
         for sess in sessions[:20]:
             login_time = parse_timestamp(sess.get("login_time", ""))
             logout_time = sess.get("logout_time")
             if login_time and not logout_time:
                 active.append(sess)
-            elif (
-                login_time
-                and login_time.astimezone(None).replace(tzinfo=None) > recent_cutoff
-            ):
+            elif login_time and login_time > recent_cutoff:
                 active.append(sess)
 
         live_sessions = active[:5]
@@ -513,7 +518,7 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
             <div class="live-cmd">
                 <span class="live-time">[{time_str}]</span>
                 <span class="live-ip">{cmd["ip"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</span>
-                root@miragepot:~# {cmd["command"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}
+                root@{os.environ.get("MIRAGEPOT_HOSTNAME", "miragepot")}:~# {cmd["command"].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}
             </div>
             """
             if cmd["response"]:

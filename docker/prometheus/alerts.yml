@@ -54,7 +54,7 @@ groups:
           description: "Multiple IPs hitting rate limits: {{ $value | humanize }}/sec"
           
       - alert: NewAttackerCountry
-        expr: delta(miragepot_attacker_countries[10m]) > 3
+        expr: count(increase(miragepot_attacker_countries[10m]) > 0) > 3
         for: 0s
         labels:
           severity: info
@@ -198,7 +198,7 @@ groups:
     interval: 5m
     rules:
       - alert: UniqueIPSpike
-        expr: delta(miragepot_unique_attacker_ips[1h]) > 50
+        expr: increase(miragepot_unique_attacker_ips[1h]) > 50
         for: 0s
         labels:
           severity: info
@@ -208,7 +208,7 @@ groups:
           description: "{{ $value }} new unique IPs in last hour - possible coordinated attack"
           
       - alert: LowCacheHitRate
-        expr: rate(miragepot_llm_cache_hits_total[10m]) / (rate(miragepot_llm_cache_hits_total[10m]) + rate(miragepot_llm_cache_misses_total[10m])) < 0.5
+        expr: rate(miragepot_llm_cache_hits_total[10m]) / (rate(miragepot_llm_cache_hits_total[10m]) + rate(miragepot_llm_cache_misses_total[10m]) or vector(0)) < 0.5
         for: 10m
         labels:
           severity: info

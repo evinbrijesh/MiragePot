@@ -359,8 +359,14 @@ class MetricsCollector:
         auth_attempts.labels(username=_label_username(username)).inc()
 
         with self._lock:
-            cred_pair = f"{username}:{password}"
-            # P5-04: Cap the credential set so a sustained brute-force can't
+            # P5-04: Truncate username/password before building the pair so that
+            # attacker-controlled strings of arbitrary length cannot inflate
+            # per-entry memory usage even when the set count is below the cap.
+            _MAX_CRED_FIELD_LEN = 256
+            safe_username = username[:_MAX_CRED_FIELD_LEN]
+            safe_password = password[:_MAX_CRED_FIELD_LEN]
+            cred_pair = f"{safe_username}:{safe_password}"
+            # Cap the credential set itself so a sustained brute-force cannot
             # exhaust memory by generating millions of unique pairs.
             if len(self._unique_creds) < _MAX_UNIQUE_CREDS:
                 self._unique_creds.add(cred_pair)
@@ -467,14 +473,17 @@ _metrics_collector_lock = Lock()
 def get_metrics_collector() -> MetricsCollector:
     """Get the global metrics collector instance (thread-safe).
 
+    P5-06: Always acquire the lock before checking _metrics_collector to
+    prevent the double-checked locking race where two threads both observe
+    None before either creates the instance.
+
     Returns:
         Global MetricsCollector instance
     """
     global _metrics_collector
-    if _metrics_collector is None:
-        with _metrics_collector_lock:
-            if _metrics_collector is None:
-                _metrics_collector = MetricsCollector()
+    with _metrics_collector_lock:
+        if _metrics_collector is None:
+            _metrics_collector = MetricsCollector()
     return _metrics_collector
 
 
@@ -489,14 +498,15 @@ def reset_metrics_collector():
 # =============================================================================
 
 
-def start_metrics_server(port: int = 9090, host: str = "127.0.0.1"):
+def start_metrics_server(port: int = 9090, host: str = "0.0.0.0"):
     """Start HTTP server for Prometheus metrics endpoint.
 
     Args:
         port: Port to listen on
-        host: Host address to bind to (default: 127.0.0.1 — loopback only,
-              P4-05: the metrics endpoint has no authentication so it must
-              not be exposed to the network interface)
+        host: Host address to bind to (default: 0.0.0.0 — required when running
+              inside Docker so Prometheus can scrape from the host network.
+              The docker-compose port mapping (127.0.0.1:9090:9090) ensures the
+              endpoint is only reachable from localhost on the host machine.)
     """
     from http.server import HTTPServer, BaseHTTPRequestHandler
     from threading import Thread

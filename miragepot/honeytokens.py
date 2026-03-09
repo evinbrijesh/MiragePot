@@ -20,8 +20,10 @@ import secrets
 import string
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
+
+from .config import get_config
 
 
 @dataclass
@@ -301,7 +303,7 @@ def init_honeytokens(session_id: str) -> SessionHoneytokens:
     Creates a set of unique tokens for this session.
     """
     tokens = SessionHoneytokens(session_id=session_id)
-    created_time = datetime.now().isoformat()
+    created_time = datetime.now(timezone.utc).isoformat()
 
     # Generate AWS credentials
     aws_access = generate_aws_access_key(session_id)
@@ -556,6 +558,7 @@ def get_honeytokens_summary(honeytokens: SessionHoneytokens) -> Dict[str, Any]:
 def generate_env_file_content(honeytokens: SessionHoneytokens) -> str:
     """Generate realistic .env file content with embedded honeytokens."""
     tokens = honeytokens.tokens
+    hostname = get_config().honeypot.hostname
 
     api_key = tokens.get("internal_api")
     db_pass = tokens.get("db_password")
@@ -565,14 +568,14 @@ def generate_env_file_content(honeytokens: SessionHoneytokens) -> str:
     return f"""# Application Configuration
 APP_ENV=production
 APP_DEBUG=false
-APP_URL=https://miragepot.internal.local
+APP_URL=https://{hostname}.internal.local
 
 # Database Configuration
 DB_CONNECTION=mysql
 DB_HOST=db.internal.local
 DB_PORT=3306
-DB_DATABASE=miragepot_production
-DB_USERNAME=mirage_app
+DB_DATABASE={hostname}_production
+DB_USERNAME={hostname[:8]}_app
 DB_PASSWORD={db_pass.value if db_pass else "FAKE_DB_PASSWORD"}
 
 # API Keys
@@ -587,13 +590,13 @@ APP_KEY=base64:FAKE_APP_KEY_DO_NOT_USE_IN_PRODUCTION
 AWS_ACCESS_KEY_ID={generate_aws_access_key(honeytokens.session_id)}
 AWS_SECRET_ACCESS_KEY={generate_aws_secret_key(honeytokens.session_id)}
 AWS_DEFAULT_REGION=us-east-1
-AWS_BUCKET=miragepot-backups
+AWS_BUCKET={hostname}-backups
 
 # Mail Configuration
 MAIL_DRIVER=smtp
 MAIL_HOST=smtp.internal.local
 MAIL_PORT=587
-MAIL_USERNAME=noreply@miragepot.local
+MAIL_USERNAME=noreply@{hostname}.local
 MAIL_PASSWORD={generate_password(honeytokens.session_id, "mail")}
 """
 

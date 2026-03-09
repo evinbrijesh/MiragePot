@@ -185,10 +185,10 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
                 sessions.append(live_entry)
 
             # Keep only sessions from last 10 minutes
-            cutoff = datetime.utcnow().isoformat() + "Z"
+            last_updated = datetime.utcnow().isoformat() + "Z"
             live_data = {
                 "sessions": sessions[-50:],  # Max 50 live sessions
-                "last_updated": cutoff,
+                "last_updated": last_updated,
             }
 
             # P1-03: Atomic write — write to a temp file in the same directory then
@@ -633,14 +633,12 @@ def _handle_client(
 
                     try:
                         if response:
-                            # Ensure responses end with a newline so prompts are aligned
-                            if not response.endswith("\n") and not response.endswith(
-                                "\r"
-                            ):
-                                response = response + "\r\n"
-                            else:
-                                # Normalize LF to CRLF for SSH terminals
-                                response = response.replace("\n", "\r\n")
+                            # Normalize all bare LF → CRLF, then collapse any
+                            # accidental \r\r\n (from a response that already
+                            # ended with \r) back to a single \r\n.
+                            response = response.replace("\n", "\r\n").replace(
+                                "\r\r\n", "\r\n"
+                            )
                             chan.send(response.encode("utf-8"))
 
                         # P3-13: Uniform minimum response delay for all paths (cache,
@@ -732,14 +730,14 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
     # P5-03: Rotate old session logs at startup to prevent unbounded disk growth.
     _rotate_logs(LOG_DIR)
 
-    # P4-05: Bind metrics server to loopback only — it has no auth and should not
-    # be reachable from the network.
+    # Bind metrics server to all interfaces when running in Docker so Prometheus
+    # can scrape it. Host-side exposure is controlled by docker-compose port mapping.
     metrics_port = 9090
     try:
-        start_metrics_server(port=metrics_port, host="127.0.0.1")
+        start_metrics_server(port=metrics_port, host="0.0.0.0")
         print(
             Fore.GREEN
-            + f"[+] Prometheus metrics available at http://127.0.0.1:{metrics_port}/metrics"
+            + f"[+] Prometheus metrics available at http://0.0.0.0:{metrics_port}/metrics"
             + Style.RESET_ALL
         )
     except Exception as e:
@@ -767,9 +765,10 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
 
     print(Fore.GREEN + f"[+] MiragePot listening on {host}:{port}" + Style.RESET_ALL)
 
-    # P2-06: Pre-check rate limiter before spawning a thread so we never allocate a
-    # thread for a connection that will be immediately rejected.
-    _rate_limiter = get_rate_limiter()
+    # P2-06: Rate limiting is enforced inside _handle_client() via
+    # check_and_register(), which is the single authoritative gate.
+    # A pre-check here would block IPs as a side effect without registering
+    # the connection, potentially causing permanent lockouts.
 
     try:
         while True:
@@ -777,20 +776,6 @@ def start_server(host: str = "0.0.0.0", port: int = SSH_PORT) -> None:
             LOGGER.debug(
                 "=== SOCKET ACCEPT === New TCP connection from %s:%s", addr[0], addr[1]
             )
-            # P2-06: Check rate limit before creating a thread
-            _can_accept, _reason = _rate_limiter.can_accept_connection(addr[0])
-            if not _can_accept:
-                LOGGER.warning(
-                    "Connection from %s:%s rejected before thread: %s",
-                    addr[0],
-                    addr[1],
-                    _reason,
-                )
-                try:
-                    client.close()
-                except Exception:
-                    pass
-                continue
             thread = threading.Thread(
                 target=_handle_client,
                 args=(client, addr, host_key, all_host_keys),
@@ -832,16 +817,9 @@ class HoneypotServer:
         # P5-03: Rotate old session logs at startup.
         _rotate_logs(LOG_DIR)
 
-        # P4-05: Bind metrics server to loopback only.
-        metrics_port = 9090
-        try:
-            start_metrics_server(port=metrics_port, host="127.0.0.1")
-            LOGGER.info(
-                "Prometheus metrics available at http://127.0.0.1:%d/metrics",
-                metrics_port,
-            )
-        except Exception as e:
-            LOGGER.warning("Failed to start metrics server: %s", e)
+        # Note: metrics server is started by start_server() / the CLI entry
+        # point before HoneypotServer.run() is called.  Starting it a second
+        # time here would fail silently and create a misleading log message.
 
         # Ensure Ollama is running; auto-start it if not
         ollama_ok, ollama_msg = ensure_ollama_running()
@@ -864,8 +842,8 @@ class HoneypotServer:
         cleanup_thread = threading.Thread(target=self._cleanup_threads, daemon=True)
         cleanup_thread.start()
 
-        # P2-06: Pre-check rate limiter before spawning a thread.
-        _rate_limiter = get_rate_limiter()
+        # P2-06: Rate limiting is enforced inside _handle_client() via
+        # check_and_register(), which is the single authoritative gate.
 
         try:
             while self._running:
@@ -877,20 +855,6 @@ class HoneypotServer:
                         addr[0],
                         addr[1],
                     )
-                    # P2-06: Check rate limit before creating a thread
-                    _can_accept, _reason = _rate_limiter.can_accept_connection(addr[0])
-                    if not _can_accept:
-                        LOGGER.warning(
-                            "Connection from %s:%s rejected before thread: %s",
-                            addr[0],
-                            addr[1],
-                            _reason,
-                        )
-                        try:
-                            client.close()
-                        except Exception:
-                            pass
-                        continue
                     thread = threading.Thread(
                         target=_handle_client,
                         args=(client, addr, self._host_key, self._all_host_keys),

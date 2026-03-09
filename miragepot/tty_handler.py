@@ -387,6 +387,10 @@ class TTYHandler:
         self.buffer = ""
         self.escape_buffer = ""  # For collecting escape sequences
         self.in_escape = False
+        # P5-07: Buffer for accumulating multi-byte UTF-8 sequences.  When a
+        # lead byte > 0x7F arrives we store it here until the full character is
+        # complete, then append the decoded codepoint to self.buffer.
+        self._utf8_buf: bytearray = bytearray()
 
     def get_prompt(self) -> str:
         """Get the current prompt string."""
@@ -410,10 +414,59 @@ class TTYHandler:
         command = None
         needs_prompt = False
 
-        # P5-07: Filter non-ASCII bytes (128-255) — they are either high-ASCII or
-        # invalid UTF-8 start bytes that can cause encode() exceptions downstream.
+        # P5-07: Handle non-ASCII bytes as part of a UTF-8 multi-byte sequence.
+        # Accumulate bytes until the sequence is complete, then echo the decoded
+        # character back and append it to the line buffer.  Only genuinely invalid
+        # sequences are discarded — valid UTF-8 (Chinese, Arabic, emoji, etc.) is
+        # preserved so international attackers interact naturally with the honeypot.
         if byte > 127:
-            return None, "", False
+            self._utf8_buf.append(byte)
+            # Determine the expected length of the sequence from the lead byte.
+            lead = self._utf8_buf[0]
+            if lead & 0xF8 == 0xF0:
+                expected = 4
+            elif lead & 0xF0 == 0xE0:
+                expected = 3
+            elif lead & 0xE0 == 0xC0:
+                expected = 2
+            else:
+                # Not a valid UTF-8 lead byte — discard the buffer
+                self._utf8_buf.clear()
+                return None, "", False
+            if len(self._utf8_buf) < expected:
+                # Sequence not yet complete — wait for more bytes
+                return None, "", False
+            # We have the full sequence — try to decode it
+            try:
+                decoded = self._utf8_buf.decode("utf-8")
+            except (UnicodeDecodeError, ValueError):
+                decoded = None
+            self._utf8_buf.clear()
+            if decoded is None:
+                return None, "", False
+            # Guard against control/formatting codepoints smuggled via multi-byte
+            import unicodedata as _ud
+
+            filtered = "".join(
+                ch for ch in decoded if _ud.category(ch)[0] not in ("C",)
+            )
+            if not filtered:
+                return None, "", False
+            # Insert character(s) at cursor position, respecting MAX_COMMAND_LENGTH
+            MAX_COMMAND_LENGTH = 4096
+            pos = self.tty_state.cursor_pos
+            for ch in filtered:
+                if len(self.buffer) < MAX_COMMAND_LENGTH:
+                    self.buffer = self.buffer[:pos] + ch + self.buffer[pos:]
+                    pos += 1
+            self.tty_state.current_buffer = self.buffer
+            self.tty_state.cursor_pos = pos
+            # If cursor was at end, just echo the chars; otherwise redraw the tail
+            if pos == len(self.buffer):
+                return None, filtered, False
+            tail = self.buffer[pos:]
+            output = filtered + tail + ANSI_CURSOR_BACK * len(tail)
+            return None, output, False
 
         # Handle escape sequences
         if self.in_escape:
@@ -432,6 +485,7 @@ class TTYHandler:
         # Handle Ctrl+D (EOF) - only if buffer is empty
         if c == CTRL_D:
             if not self.buffer:
+                add_to_history(self.tty_state, "exit")
                 return "exit", "", False
             return None, "", False
 
@@ -461,11 +515,29 @@ class TTYHandler:
 
         # Handle Backspace
         if c == BACKSPACE or c == "\x08":
-            if self.buffer:
-                self.buffer = self.buffer[:-1]
+            pos = self.tty_state.cursor_pos
+            # Guard against cursor_pos being stale (e.g. buffer set externally).
+            # If the buffer is non-empty but cursor_pos is 0, treat cursor as at end.
+            if self.buffer and pos == 0:
+                pos = len(self.buffer)
+                self.tty_state.cursor_pos = pos
+            if self.buffer and pos > 0:
+                # Delete the character immediately before the cursor
+                self.buffer = self.buffer[: pos - 1] + self.buffer[pos:]
                 self.tty_state.current_buffer = self.buffer
-                self.tty_state.cursor_pos = len(self.buffer)
-                output = "\b \b"
+                self.tty_state.cursor_pos = pos - 1
+                if pos == len(self.buffer) + 1:
+                    # Cursor was at end — simple backspace echo
+                    output = "\b \b"
+                else:
+                    # Cursor was mid-line — redraw from cursor back
+                    tail = self.buffer[pos - 1 :]
+                    output = (
+                        "\b"  # move back one
+                        + tail  # overwrite with shifted tail
+                        + " "  # erase the last now-duplicate char
+                        + ANSI_CURSOR_BACK * (len(tail) + 1)  # reposition cursor
+                    )
             return None, output, False
 
         # Ignore other control characters
@@ -480,11 +552,23 @@ class TTYHandler:
             # Ring the terminal bell to signal rejection; discard the character
             return None, "\x07", False
 
-        # Regular printable character
-        self.buffer += c
-        self.tty_state.current_buffer = self.buffer
-        self.tty_state.cursor_pos = len(self.buffer)
-        return None, c, False
+        # Regular printable character — insert at cursor position
+        pos = self.tty_state.cursor_pos
+        if pos == len(self.buffer):
+            # Cursor at end — simple append and echo
+            self.buffer += c
+            self.tty_state.current_buffer = self.buffer
+            self.tty_state.cursor_pos = len(self.buffer)
+            return None, c, False
+        else:
+            # Cursor mid-line — insert and redraw tail
+            self.buffer = self.buffer[:pos] + c + self.buffer[pos:]
+            self.tty_state.current_buffer = self.buffer
+            self.tty_state.cursor_pos = pos + 1
+            tail = self.buffer[pos + 1 :]
+            # Output: the inserted char + rest of line + move cursor back to new pos
+            output = c + tail + ANSI_CURSOR_BACK * len(tail)
+            return None, output, False
 
     def _handle_escape_byte(self, c: str) -> Tuple[Optional[str], str, bool]:
         """Handle a byte during escape sequence parsing.
@@ -514,20 +598,28 @@ class TTYHandler:
                 new_buf, output = handle_arrow_up(self.tty_state)
                 prompt = self.get_prompt()
                 self.buffer = new_buf
+                self.tty_state.cursor_pos = len(new_buf)
                 return None, output + prompt + new_buf, False
 
             elif seq == "[B":  # Down arrow
                 new_buf, output = handle_arrow_down(self.tty_state)
                 prompt = self.get_prompt()
                 self.buffer = new_buf
+                self.tty_state.cursor_pos = len(new_buf)
                 return None, output + prompt + new_buf, False
 
             elif seq == "[C":  # Right arrow
-                # TODO: implement cursor movement
+                pos = self.tty_state.cursor_pos
+                if pos < len(self.buffer):
+                    self.tty_state.cursor_pos = pos + 1
+                    return None, ANSI_CURSOR_FORWARD, False
                 return None, "", False
 
             elif seq == "[D":  # Left arrow
-                # TODO: implement cursor movement
+                pos = self.tty_state.cursor_pos
+                if pos > 0:
+                    self.tty_state.cursor_pos = pos - 1
+                    return None, ANSI_CURSOR_BACK, False
                 return None, "", False
 
             # Unknown sequence, ignore

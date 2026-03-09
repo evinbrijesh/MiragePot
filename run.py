@@ -109,7 +109,7 @@ def _kill_existing_backend(port: int = 2222) -> None:
 def main() -> None:
     _kill_existing_backend(port=2222)
 
-    backend_cmd = [sys.executable, "-m", "miragepot.server"]
+    backend_cmd = [sys.executable, "-m", "miragepot"]
     dashboard_cmd = ["streamlit", "run", "dashboard/app.py"]
 
     backend_proc = start_process(backend_cmd, "MiragePot backend")

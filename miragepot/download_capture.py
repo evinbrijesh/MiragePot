@@ -160,14 +160,15 @@ def parse_wget_command(command: str) -> Optional[DownloadAttempt]:
             or part.startswith("https://")
             or part.startswith("ftp://")
             or "://" in part
-            or "." in part
+            or ("/" in part and not part.startswith("-") and "." in part.split("/")[0])
         ):  # Could be hostname like example.com/file
             source = part
             i += 1
             continue
 
         # If it's not a flag and not identified as URL, might be URL without protocol
-        if not source and "/" in part:
+        # Only accept if it looks like host/path (contains a dot in the first segment)
+        if not source and "/" in part and "." in part.split("/")[0]:
             source = part
             i += 1
             continue

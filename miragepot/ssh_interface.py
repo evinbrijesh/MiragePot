@@ -103,14 +103,14 @@ def _check_key_permissions(key_path: Path) -> None:
         )
 
 
-def _generate_ed25519_key() -> paramiko.PKey:
+def _generate_ed25519_key() -> bytes:
     """Generate an Ed25519 key using the ``cryptography`` library.
 
     paramiko 4.x does not expose ``Ed25519Key.generate()``, so we generate
-    the key via ``cryptography`` directly and wrap it.
+    the key via ``cryptography`` directly and return the raw PEM bytes.
+    The caller is responsible for writing the bytes to disk and loading back
+    via ``paramiko.Ed25519Key.from_private_key_file()``.
     """
-    import io
-
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import (
         Encoding,
@@ -119,14 +119,15 @@ def _generate_ed25519_key() -> paramiko.PKey:
     )
 
     priv = Ed25519PrivateKey.generate()
-    pem = priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
-    return paramiko.Ed25519Key.from_private_key(io.StringIO(pem.decode()))
+    return priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
 
 
-def _generate_ecdsa_key() -> paramiko.PKey:
-    """Generate an ECDSA nistp256 key using the ``cryptography`` library."""
-    import io
+def _generate_ecdsa_key() -> bytes:
+    """Generate an ECDSA nistp256 key using the ``cryptography`` library.
 
+    Returns the raw PEM bytes.  The caller is responsible for writing the bytes
+    to disk and loading back via ``paramiko.ECDSAKey.from_private_key_file()``.
+    """
     from cryptography.hazmat.primitives.asymmetric.ec import (
         SECP256R1,
         generate_private_key,
@@ -138,8 +139,7 @@ def _generate_ecdsa_key() -> paramiko.PKey:
     )
 
     priv = generate_private_key(SECP256R1())
-    pem = priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
-    return paramiko.ECDSAKey.from_private_key(io.StringIO(pem.decode()))
+    return priv.private_bytes(Encoding.PEM, PrivateFormat.OpenSSH, NoEncryption())
 
 
 def get_or_create_host_key() -> paramiko.PKey:
@@ -176,12 +176,14 @@ def get_or_create_host_key() -> paramiko.PKey:
             LOGGER.debug("Loaded Ed25519 host key from %s", ed25519_path)
         except Exception as exc:
             LOGGER.error("Failed to load Ed25519 key, regenerating: %s", exc)
-            ed25519_key = _generate_ed25519_key()
-            ed25519_key.write_private_key_file(str(ed25519_path))
+            ed25519_path.write_bytes(_generate_ed25519_key())
+            ed25519_path.chmod(0o600)
+            ed25519_key = paramiko.Ed25519Key.from_private_key_file(str(ed25519_path))
             LOGGER.info("Regenerated Ed25519 host key at %s", ed25519_path)
     else:
-        ed25519_key = _generate_ed25519_key()
-        ed25519_key.write_private_key_file(str(ed25519_path))
+        ed25519_path.write_bytes(_generate_ed25519_key())
+        ed25519_path.chmod(0o600)
+        ed25519_key = paramiko.Ed25519Key.from_private_key_file(str(ed25519_path))
         LOGGER.info("Generated new Ed25519 host key at %s", ed25519_path)
 
     # -- ECDSA nistp256 --
@@ -192,12 +194,12 @@ def get_or_create_host_key() -> paramiko.PKey:
             LOGGER.debug("Loaded ECDSA host key from %s", ecdsa_path)
         except Exception as exc:
             LOGGER.error("Failed to load ECDSA key, regenerating: %s", exc)
-            ecdsa_key = _generate_ecdsa_key()
-            ecdsa_key.write_private_key_file(str(ecdsa_path))
+            ecdsa_path.write_bytes(_generate_ecdsa_key())
+            ecdsa_path.chmod(0o600)
             LOGGER.info("Regenerated ECDSA host key at %s", ecdsa_path)
     else:
-        ecdsa_key = _generate_ecdsa_key()
-        ecdsa_key.write_private_key_file(str(ecdsa_path))
+        ecdsa_path.write_bytes(_generate_ecdsa_key())
+        ecdsa_path.chmod(0o600)
         LOGGER.info("Generated new ECDSA host key at %s", ecdsa_path)
 
     # -- RSA-4096 (kept for legacy client compatibility) --

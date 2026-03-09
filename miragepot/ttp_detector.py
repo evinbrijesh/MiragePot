@@ -1477,8 +1477,10 @@ def analyze_command(command: str, ttp_state: SessionTTPState) -> List[TTPIndicat
     if not stripped:
         return indicators
 
-    # Add to command history
+    # Add to command history; cap at 500 entries to prevent unbounded growth
     ttp_state.commands_history.append(stripped)
+    if len(ttp_state.commands_history) > 500:
+        ttp_state.commands_history = ttp_state.commands_history[-500:]
 
     # Check single command patterns
     for (
@@ -1565,13 +1567,27 @@ def _matches_chain(history: List[str], chain: List[str]) -> bool:
     """Check if command history contains the chain pattern.
 
     The chain commands don't need to be consecutive, just in order.
+    Chain elements that contain explicit regex metacharacters (``.*``, ``|``,
+    or ``[``) are matched with ``re.search``; all other patterns use a plain
+    case-insensitive substring match to avoid misinterpreting characters like
+    ``+`` or ``.`` that appear in real shell commands.
     """
+    _REGEX_INDICATORS = (".*", "|", "[")
+
     chain_idx = 0
     for cmd in history:
         if chain_idx >= len(chain):
             break
-        # Check if current command matches current chain element (substring match)
-        if chain[chain_idx].lower() in cmd.lower():
+        pattern = chain[chain_idx]
+        # Only treat as regex if it contains explicit regex metacharacters
+        if any(meta in pattern for meta in _REGEX_INDICATORS):
+            try:
+                matched = bool(re.search(pattern, cmd, re.IGNORECASE))
+            except re.error:
+                matched = pattern.lower() in cmd.lower()
+        else:
+            matched = pattern.lower() in cmd.lower()
+        if matched:
             chain_idx += 1
 
     return chain_idx >= len(chain)

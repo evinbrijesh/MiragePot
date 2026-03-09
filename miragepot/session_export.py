@@ -180,6 +180,7 @@ def export_as_text(session: SessionData, include_metadata: bool = True) -> str:
     lines.append("--- Session Transcript ---")
     lines.append("")
 
+    hostname = get_config().honeypot.hostname
     for cmd in session.commands:
         # Show timestamp and command
         time_str = (
@@ -187,7 +188,6 @@ def export_as_text(session: SessionData, include_metadata: bool = True) -> str:
             if "T" in cmd.timestamp
             else cmd.timestamp
         )
-        hostname = get_config().honeypot.hostname
         lines.append(f"[{time_str}] root@{hostname}:{cmd.cwd}# {cmd.command}")
 
         # Show response (indented)

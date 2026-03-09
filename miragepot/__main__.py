@@ -84,9 +84,7 @@ def start_dashboard(port: int) -> Optional[subprocess.Popen]:
     ]
 
     try:
-        proc = subprocess.Popen(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
+        proc = subprocess.Popen(cmd, stdout=None, stderr=None)
         logging.info("Dashboard started on http://localhost:%d", port)
         return proc
     except FileNotFoundError:
@@ -449,10 +447,14 @@ For more information, visit: https://github.com/evinbrijesh/MiragePot
     config = get_config()
 
     # CLI args override environment/config
-    host = args.host or config.ssh.host
-    port = args.port or config.ssh.port
-    dashboard_port = args.dashboard_port or config.dashboard.port
-    log_level = args.log_level or config.logging.level
+    host = args.host if args.host is not None else config.ssh.host
+    port = args.port if args.port is not None else config.ssh.port
+    dashboard_port = (
+        args.dashboard_port
+        if args.dashboard_port is not None
+        else config.dashboard.port
+    )
+    log_level = args.log_level if args.log_level is not None else config.logging.level
 
     # Setup logging
     setup_logging(log_level)

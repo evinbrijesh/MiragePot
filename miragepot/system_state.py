@@ -19,6 +19,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from .config import get_config
+
 
 @dataclass
 class FakeProcess:
@@ -667,17 +669,18 @@ def format_id(username: str = "root") -> str:
 
 def format_hostname() -> str:
     """Format hostname command output."""
-    return "miragepot\n"
+    return get_config().honeypot.hostname + "\n"
 
 
 def format_uname(flags: str = "") -> str:
     """Format uname command output."""
+    hostname = get_config().honeypot.hostname
     if "a" in flags or flags == "-a":
-        return "Linux miragepot 5.15.0-86-generic #96-Ubuntu SMP Wed Sep 20 08:23:49 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
+        return f"Linux {hostname} 5.15.0-86-generic #96-Ubuntu SMP Wed Sep 20 08:23:49 UTC 2023 x86_64 x86_64 x86_64 GNU/Linux\n"
     elif "r" in flags:
         return "5.15.0-86-generic\n"
     elif "n" in flags:
-        return "miragepot\n"
+        return f"{hostname}\n"
     elif "s" in flags or not flags:
         return "Linux\n"
     elif "m" in flags:

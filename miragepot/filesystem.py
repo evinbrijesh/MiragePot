@@ -15,7 +15,7 @@ import fnmatch
 import random
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 
@@ -305,7 +305,7 @@ def format_stat_output(path: str, meta: FileMetadata, content: str = "") -> str:
 
     # Format times
     def format_time(ts: float) -> str:
-        dt = datetime.fromtimestamp(ts)
+        dt = datetime.fromtimestamp(ts, tz=timezone.utc)
         return dt.strftime("%Y-%m-%d %H:%M:%S.%f")[:-3] + " +0000"
 
     access_time = format_time(meta.atime)

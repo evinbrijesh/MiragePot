@@ -39,7 +39,7 @@ services:
       - "127.0.0.1:9090:9090"   # Metrics endpoint
     volumes:
       - ../data/logs:/app/data/logs
-      - ../data/cache.json:/app/data/cache.json:ro
+      - ../data/cache.json:/app/data/cache.json
       - ../data/system_prompt.txt:/app/data/system_prompt.txt:ro
     env_file:
       - ../.env.docker
