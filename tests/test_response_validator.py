@@ -141,24 +141,49 @@ class TestAIRevelationDetection:
             assert result.is_valid is False, f"Should detect: {response[:50]}"
 
     def test_explanatory_phrases(self):
-        """Test detection of explanatory phrases."""
+        """Test detection of unambiguous AI explanatory phrases.
+
+        Only phrases that cannot appear in legitimate terminal output are tested.
+        Over-broad phrases like "the command", "the output", "here is", etc. were
+        intentionally removed because they appear in man pages, apt output, and
+        --help text; those are tested in test_valid_terminal_output_passes instead.
+        """
         session = {"cwd": "/root", "files": {}, "directories": set()}
 
         explanatory_phrases = [
-            "The command 'ls' lists files in the directory.",
-            "This command shows the current directory contents.",
-            "The output shows three files.",
-            "Note that this requires root privileges.",
             "Please note that you need sudo for this.",
             "Keep in mind that this is dangerous.",
             "As you can see, there are several files here.",
-            "Here is the output of the command:",
-            "Here's what the command returns:",
         ]
 
         for response in explanatory_phrases:
             result = validate_response(response, "ls", session)
             assert result.is_valid is False, f"Should detect: {response[:50]}"
+
+    def test_formerly_overbroad_phrases_now_pass(self):
+        """Phrases previously in AI_REVELATION_PHRASES that were too broad.
+
+        These phrases appear legitimately in terminal output (man pages, apt,
+        --help text) and must not cause valid LLM responses to be dropped.
+        """
+        session = {"cwd": "/root", "files": {}, "directories": set()}
+
+        formerly_blocked = [
+            "The command 'ls' lists files in the current directory.",
+            "This command shows the current directory contents.",
+            "The output shows three files.",
+            "Note that this requires root privileges.",
+            "Here is the list of installed packages:",
+            "Here's what the command returns:",
+            "Here are the available options:",
+            "In reality, the file does not exist.",
+        ]
+
+        for response in formerly_blocked:
+            result = validate_response(response, "ls", session)
+            assert result.is_valid is True, (
+                f"Should pass now (was over-broad): {response[:60]}"
+            )
 
     def test_valid_terminal_output_passes(self):
         """Test that valid terminal output is not flagged."""

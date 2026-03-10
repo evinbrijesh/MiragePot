@@ -224,10 +224,13 @@ def reload_config() -> Config:
     """Force reload of configuration from environment.
 
     Useful for testing or dynamic reconfiguration.
+    Acquires _config_lock so that concurrent callers and get_config()
+    see a consistent view of the global instance.
     """
     global _config
-    _config = Config()
-    return _config
+    with _config_lock:
+        _config = Config()
+        return _config
 
 
 # Convenience exports

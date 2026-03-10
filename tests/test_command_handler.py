@@ -15,6 +15,7 @@ from miragepot.command_handler import (
     _handle_mkdir,
     _handle_touch,
     _handle_rm,
+    EXIT_SENTINEL,
 )
 
 
@@ -335,14 +336,14 @@ class TestHandleCommand:
     """Tests for the main command handler."""
 
     def test_exit_returns_special_token(self, session_state):
-        """exit command should return special token."""
+        """exit command should return the session-unique EXIT_SENTINEL token."""
         result = handle_command("exit", session_state)
-        assert result == "__MIRAGEPOT_EXIT__"
+        assert result == EXIT_SENTINEL
 
     def test_logout_returns_special_token(self, session_state):
-        """logout command should return special token."""
+        """logout command should return the session-unique EXIT_SENTINEL token."""
         result = handle_command("logout", session_state)
-        assert result == "__MIRAGEPOT_EXIT__"
+        assert result == EXIT_SENTINEL
 
     def test_empty_command(self, session_state):
         """Empty command should return empty string."""

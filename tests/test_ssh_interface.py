@@ -108,49 +108,75 @@ class TestSSHServer:
         assert server.exec_command is None
 
     def test_check_auth_password_records_attempt(self):
-        """check_auth_password records the authentication attempt."""
+        """check_auth_password records all attempts and accepts after fail-before-accept.
+
+        P2-04: The server deliberately fails the first _fail_before_accept attempts
+        before accepting, to avoid the honeypot fingerprint of instant acceptance.
+        We call enough times to reach the acceptance attempt and verify the last
+        call succeeds and records a successful attempt.
+        """
         server = SSHServer()
+        n = server._fail_before_accept  # 1-3 failing attempts before acceptance
+
+        # Exhaust the fail-before-accept window with throwaway attempts
+        for _ in range(n):
+            server.check_auth_password("root", "wrong")
+
+        # The next attempt should be accepted
         result = server.check_auth_password("root", "toor")
 
         # Should accept (AUTH_SUCCESSFUL = 0)
         assert result == 0
 
-        # Should record the attempt
-        assert len(server.auth_attempts) == 1
-        attempt = server.auth_attempts[0]
-        assert attempt.username == "root"
-        assert attempt.credential == "toor"
-        assert attempt.method == "password"
-        assert attempt.success is True
+        # Should record all attempts (n failures + 1 success)
+        assert len(server.auth_attempts) == n + 1
+        success_attempt = server.auth_attempts[-1]
+        assert success_attempt.username == "root"
+        assert success_attempt.credential == "toor"
+        assert success_attempt.method == "password"
+        assert success_attempt.success is True
 
         # Should store successful credentials
         assert server.successful_username == "root"
         assert server.successful_password == "toor"
 
     def test_multiple_auth_attempts(self):
-        """Multiple auth attempts are all recorded."""
-        server = SSHServer()
+        """Multiple auth attempts are all recorded including failures.
 
-        # Simulate multiple attempts
+        P2-04: All attempts (failed and successful) are recorded. We exhaust the
+        fail-before-accept window so the final attempt is guaranteed to succeed.
+        """
+        server = SSHServer()
+        n = server._fail_before_accept
+
+        # Exhaust fail-before-accept window, then add a successful attempt
         server.check_auth_password("admin", "admin")
-        server.check_auth_password("root", "password")
+        for _ in range(max(0, n - 1)):
+            server.check_auth_password("root", "password")
         server.check_auth_password("root", "toor")
 
-        assert len(server.auth_attempts) == 3
+        assert len(server.auth_attempts) == n + 1
         # Last successful credentials are stored
         assert server.successful_username == "root"
         assert server.successful_password == "toor"
 
     def test_get_auth_summary(self):
-        """get_auth_summary returns complete auth data."""
+        """get_auth_summary returns complete auth data including successful credentials.
+
+        P2-04: Must call enough times to pass the fail-before-accept window.
+        """
         server = SSHServer()
+        n = server._fail_before_accept
+
+        for _ in range(n):
+            server.check_auth_password("root", "wrong")
         server.check_auth_password("root", "secret123")
 
         summary = server.get_auth_summary()
         assert summary["successful_username"] == "root"
         assert summary["successful_password"] == "secret123"
-        assert summary["attempt_count"] == 1
-        assert len(summary["attempts"]) == 1
+        assert summary["attempt_count"] == n + 1
+        assert len(summary["attempts"]) == n + 1
 
     def test_get_session_metadata(self):
         """get_session_metadata returns all captured metadata."""
@@ -181,11 +207,14 @@ class TestSSHServer:
         assert result == paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
 
     def test_get_allowed_auths(self):
-        """get_allowed_auths returns password and publickey."""
+        """get_allowed_auths returns password auth only.
+
+        P2-08: Only advertise password auth. Advertising publickey causes many
+        clients to attempt key-based auth first, reducing credential capture.
+        """
         server = SSHServer()
         allowed = server.get_allowed_auths("root")
         assert "password" in allowed
-        assert "publickey" in allowed
 
     def test_check_channel_shell_request(self):
         """check_channel_shell_request accepts shell requests."""

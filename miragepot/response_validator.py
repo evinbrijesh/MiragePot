@@ -109,19 +109,13 @@ AI_REVELATION_PHRASES = [
     "i would be happy to",
     "feel free to ask",
     "is there anything",
-    # Explanatory phrases (AI explaining rather than outputting)
-    "the command",
-    "this command",
-    "the output",
-    "this output",
-    "note that",
+    # Explanatory phrases that unambiguously indicate an AI explaining rather
+    # than producing terminal output.  Phrases that also appear in legitimate
+    # command output (man pages, apt, --help text) have been intentionally
+    # excluded to avoid silently dropping valid LLM responses.
     "please note",
     "keep in mind",
     "as you can see",
-    "here is",
-    "here's",
-    "here are",
-    "in reality",
     # P3-11: Backend technology identifiers that must never appear in shell output
     "ollama",
     "phi3",

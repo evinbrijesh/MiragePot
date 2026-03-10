@@ -13,10 +13,12 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import logging
+import random
 import re
 import subprocess
 import threading
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional, cast
 
@@ -224,20 +226,72 @@ def _generate_fallback_response(command: str) -> str:
     """Generate a basic fallback response when LLM is unavailable.
 
     This provides minimal functionality to keep the honeypot running.
+    Responses that depend on time (date, uptime, w, last) are generated
+    dynamically each call so they cannot be used as a static fingerprint.
     """
     cmd_lower = command.lower().strip()
     cmd_parts = command.split()
     base_cmd = cmd_parts[0] if cmd_parts else command
 
-    # Common commands with static fallback responses
+    # --- Dynamic time-based responses ---
+    now_utc = datetime.now(timezone.utc)
+
+    if command == "date":
+        # Format: "Mon Jan 20 12:34:56 UTC 2026"
+        return now_utc.strftime("%a %b %d %H:%M:%S UTC %Y") + "\n"
+
+    if command in ("uptime", "w"):
+        # Random uptime: 15–120 days, 0–23 hours, 0–59 minutes
+        uptime_days = random.randint(15, 120)
+        uptime_hours = random.randint(0, 23)
+        uptime_mins = random.randint(0, 59)
+        load1 = round(random.uniform(0.00, 0.30), 2)
+        load5 = round(random.uniform(0.00, 0.25), 2)
+        load15 = round(random.uniform(0.00, 0.20), 2)
+        time_str = now_utc.strftime("%H:%M:%S")
+        up_str = f"{uptime_days} days, {uptime_hours:2d}:{uptime_mins:02d}"
+        # Login happened 5–120 minutes ago
+        login_delta = random.randint(5, 120)
+        login_time = (now_utc - timedelta(minutes=login_delta)).strftime("%H:%M")
+        # Random RFC1918 attacker IP (10.x.x.x / 192.168.x.x)
+        src_ip = f"192.168.{random.randint(0, 254)}.{random.randint(1, 254)}"
+        uptime_line = (
+            f" {time_str} up {up_str},  1 user, "
+            f" load average: {load1:.2f}, {load5:.2f}, {load15:.2f}\n"
+        )
+        if command == "uptime":
+            return uptime_line
+        # "w" adds the user table
+        return (
+            uptime_line
+            + "USER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT\n"
+            + f"root     pts/0    {src_ip:<16s} {login_time:<8s} 0.00s  0.02s  0.00s w\n"
+        )
+
+    if command == "last":
+        # Two realistic recent logins + a reboot line
+        days_ago_1 = random.randint(0, 2)
+        days_ago_2 = random.randint(3, 7)
+        login1_start = now_utc - timedelta(days=days_ago_1, hours=random.randint(0, 12))
+        login2_start = now_utc - timedelta(days=days_ago_2, hours=random.randint(1, 10))
+        login2_end = login2_start + timedelta(hours=random.randint(1, 6))
+        reboot_time = now_utc - timedelta(
+            days=random.randint(15, 120), hours=random.randint(0, 23)
+        )
+        ip1 = f"192.168.{random.randint(0, 254)}.{random.randint(1, 254)}"
+        ip2 = f"10.{random.randint(0, 254)}.{random.randint(0, 254)}.{random.randint(1, 254)}"
+        dur = int((login2_end - login2_start).total_seconds() // 60)
+        dur_str = f"({dur // 60:02d}:{dur % 60:02d})"
+        return (
+            f"root     pts/0        {ip1:<16s}  {login1_start.strftime('%a %b %d %H:%M')}   still logged in\n"
+            f"root     pts/0        {ip2:<16s}  {login2_start.strftime('%a %b %d %H:%M')} - "
+            f"{login2_end.strftime('%H:%M')}  {dur_str}\n"
+            f"reboot   system boot  5.15.0-86-generic "
+            f"{reboot_time.strftime('%a %b %d %H:%M')}   still running\n"
+        )
+
+    # Static fallbacks for commands whose output doesn't change between sessions
     fallbacks = {
-        "date": "Mon Jan 20 12:00:00 UTC 2026\n",
-        "uptime": " 12:00:00 up 42 days,  3:15,  1 user,  load average: 0.08, 0.12, 0.10\n",
-        "free": "              total        used        free      shared  buff/cache   available\nMem:        4028416     1245312     1523104       89600     1260000     2483104\nSwap:       2097148           0     2097148\n",
-        "free -h": "              total        used        free      shared  buff/cache   available\nMem:           3.8Gi       1.2Gi       1.5Gi        87Mi       1.2Gi       2.4Gi\nSwap:          2.0Gi          0B       2.0Gi\n",
-        "df -h": "Filesystem      Size  Used Avail Use% Mounted on\n/dev/sda1        50G   12G   35G  26% /\ntmpfs           2.0G     0  2.0G   0% /dev/shm\n/dev/sda2       450G   89G  338G  21% /home\n",
-        "w": " 12:00:00 up 42 days,  3:15,  1 user,  load average: 0.08, 0.12, 0.10\nUSER     TTY      FROM             LOGIN@   IDLE   JCPU   PCPU WHAT\nroot     pts/0    192.168.1.100    11:45    0.00s  0.02s  0.00s w\n",
-        "last": "root     pts/0        192.168.1.100    Mon Jan 20 11:45   still logged in\nroot     pts/0        192.168.1.50     Sun Jan 19 14:22 - 18:45  (04:23)\nreboot   system boot  5.15.0-86-generic Sun Jan 19 10:00   still running\n",
         "cat /proc/version": "Linux version 5.15.0-86-generic (buildd@lcy02-amd64-086) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) #96-Ubuntu SMP x86_64\n",
         "lsb_release -a": "Distributor ID: Ubuntu\nDescription:    Ubuntu 20.04.6 LTS\nRelease:        20.04\nCodename:       focal\n",
         "which python": "/usr/bin/python\n",

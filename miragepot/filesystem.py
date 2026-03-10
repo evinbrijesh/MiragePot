@@ -601,7 +601,11 @@ def handle_find_command(
     # merely share a string prefix (e.g. "/proc" matching a search under "/pro").
     # A path belongs under start_path only if it equals start_path or starts
     # with start_path + "/" (the directory separator).
+    # Special case: when start_path is "/" every absolute path is underneath it;
+    # the naive check would use startswith("//") which never matches anything.
     def _under(path: str) -> bool:
+        if start_path == "/":
+            return True
         return path == start_path or path.startswith(start_path + "/")
 
     # Find matching directories
