@@ -8,7 +8,9 @@ fake terminal. It also captures SSH client fingerprinting data for forensics.
 from __future__ import annotations
 
 import logging
+import random
 import socket
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, cast
@@ -310,14 +312,25 @@ class SSHServer(paramiko.ServerInterface):
     # P2-04: Reject the first N password attempts before accepting.
     # Real OpenSSH rejects wrong passwords; instant acceptance on attempt #1 is a
     # classic honeypot detection signal used by automated scanners and Cowrie-detectors.
-    # Default: fail the first 2 attempts, accept on attempt 3 (realistic brute-force).
-    _FAIL_BEFORE_ACCEPT: int = 2
+    # The per-instance value is randomised between 1 and 3 so the pattern is not
+    # mechanically predictable across connections.
+    _FAIL_BEFORE_ACCEPT_MIN: int = 1
+    _FAIL_BEFORE_ACCEPT_MAX: int = 3
     # Maximum total auth attempts per connection (OpenSSH default is 6)
     _MAX_AUTH_ATTEMPTS: int = 6
 
     def __init__(self) -> None:
         super().__init__()
-        self.event = None
+        # Event that is set when the client sends a shell or exec request.
+        # _handle_client() waits on this before sending the welcome banner so
+        # the banner does not bleed into the password prompt.
+        self.event: threading.Event = threading.Event()
+
+        # P2-04: Randomise the fail-before-accept threshold per connection so
+        # the acceptance pattern is not mechanically predictable (1–3 failures).
+        self._fail_before_accept: int = random.randint(
+            self._FAIL_BEFORE_ACCEPT_MIN, self._FAIL_BEFORE_ACCEPT_MAX
+        )
 
         # P2-04: Track attempt count for fail-before-accept behaviour
         self._attempt_count: int = 0
@@ -354,7 +367,7 @@ class SSHServer(paramiko.ServerInterface):
             return AUTH_FAILED
 
         # P2-04: Fail the first N attempts to avoid instant-accept detection
-        if self._attempt_count <= self._FAIL_BEFORE_ACCEPT:
+        if self._attempt_count <= self._fail_before_accept:
             attempt = AuthAttempt(
                 method="password",
                 username=username,
@@ -450,7 +463,8 @@ class SSHServer(paramiko.ServerInterface):
         return True
 
     def check_channel_shell_request(self, channel: paramiko.Channel) -> bool:
-        # Accept shell requests.
+        # Accept shell requests and signal that the channel is ready.
+        self.event.set()
         return True
 
     def check_channel_exec_request(
@@ -463,6 +477,8 @@ class SSHServer(paramiko.ServerInterface):
             self.exec_command = str(command)
 
         LOGGER.debug("Exec request: %s", self.exec_command)
+        # Signal that the channel is ready (exec path, not interactive shell).
+        self.event.set()
         return True
 
     def get_auth_summary(self) -> Dict[str, Any]:

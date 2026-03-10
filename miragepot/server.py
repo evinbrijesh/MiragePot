@@ -91,6 +91,31 @@ def _safe_log(s: str, max_len: int = 200) -> str:
     return cleaned[:max_len] if len(cleaned) > max_len else cleaned
 
 
+def _fake_last_login() -> str:
+    """Generate a realistic pam_lastlog 'Last login' line.
+
+    Real OpenSSH/pam_lastlog format:
+        Last login: Mon Jan 15 08:23:41 2024 from 192.168.1.100
+
+    We pick a random timestamp 1–30 days in the past and a random RFC1918
+    address so each session gets a plausible but different last-login line.
+    """
+    days_ago = random.randint(1, 30)
+    seconds_ago = days_ago * 86400 + random.randint(0, 86399)
+    ts = datetime.utcnow() - timedelta(seconds=seconds_ago)
+    # Format matches pam_lastlog: abbreviated weekday, month, day, time, year
+    ts_str = ts.strftime("%a %b %d %H:%M:%S %Y")
+    # Random RFC1918 source IP
+    subnet = random.choice(["10", "172.16", "192.168"])
+    if subnet == "172.16":
+        ip = f"172.{random.randint(16, 31)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+    elif subnet == "10":
+        ip = f"10.{random.randint(0, 255)}.{random.randint(0, 255)}.{random.randint(1, 254)}"
+    else:
+        ip = f"192.168.{random.randint(0, 255)}.{random.randint(1, 254)}"
+    return f"Last login: {ts_str} from {ip}"
+
+
 def _rotate_logs(log_dir: Path, max_age_days: int = 30, max_files: int = 10000) -> None:
     """P5-03: Delete session log files older than max_age_days, or if there are
     more than max_files session logs (keeps the most recent ones).
@@ -465,6 +490,77 @@ def _handle_client(
     session_log["auth"] = server.get_auth_summary()
     session_log["pty_info"] = server.pty_info
 
+    # Wait for the client to send a shell or exec request before we send
+    # the welcome banner.  Without this wait the banner bleeds into the
+    # password prompt because it arrives before the PTY is set up on the
+    # client side.  10-second timeout; if no request arrives just continue
+    # (the banner may still display fine in that edge case).
+    server.event.wait(timeout=10)
+
+    # ------------------------------------------------------------------ #
+    # Non-interactive exec path (e.g. ssh user@host 'id')                 #
+    # ------------------------------------------------------------------ #
+    if server.exec_command is not None:
+        _exec_cmd = server.exec_command
+        LOGGER.info(
+            "Exec command from %s: %s", _safe_log(attacker_ip), _safe_log(_exec_cmd)
+        )
+        # Record authentication metrics
+        for attempt in server.auth_attempts:
+            metrics.record_auth_attempt(attempt.username, attempt.credential or "")
+        metrics.record_session_start()
+
+        # Set up minimal session state for command execution
+        _exec_username = server.successful_username or "root"
+        session_state["username"] = _exec_username
+        session_state["cwd"] = (
+            "/root" if _exec_username == "root" else f"/home/{_exec_username}"
+        )
+
+        score = calculate_threat_score(_exec_cmd)
+        apply_tarpit(score)
+        try:
+            response = handle_command(_exec_cmd, session_state)
+        except Exception as _exc:
+            _first = _exec_cmd.split()[0] if _exec_cmd.split() else "bash"
+            response = f"bash: {_safe_log(_first)}: command not found\n"
+
+        if response == EXIT_SENTINEL:
+            response = ""
+
+        _append_command(
+            session_log,
+            {
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "command": _exec_cmd,
+                "response": response,
+                "threat_score": score,
+                "delay_applied": 0,
+                "cwd": session_state.get("cwd", "/root"),
+            },
+        )
+        session_log["auth"] = server.get_auth_summary()
+
+        try:
+            if response:
+                response = response.replace("\n", "\r\n").replace("\r\r\n", "\r\n")
+                chan.send(response.encode("utf-8"))
+            chan.send_exit_status(0)
+            chan.close()
+        except Exception:
+            pass
+
+        # Persist session log and finish
+        end_time = time.time()
+        session_log["logout_time"] = datetime.utcnow().isoformat() + "Z"
+        session_log["duration_seconds"] = round(end_time - start_time, 2)
+        metrics.record_session_end(session_log["duration_seconds"])
+        metrics.decrement_active_connections()
+        _save_session_log(session_log)
+        transport.close()
+        rate_limiter.unregister_connection(attacker_ip)
+        return
+
     # Record authentication metrics for ALL attempts (success + failure)
     for attempt in server.auth_attempts:
         metrics.record_auth_attempt(attempt.username, attempt.credential or "")
@@ -499,14 +595,32 @@ def _handle_client(
     chan.settimeout(_chan_timeout)
 
     # Store username in session_state so command handlers can access it
-    session_state["username"] = server.successful_username or "root"
+    _login_username = server.successful_username or "root"
+    session_state["username"] = _login_username
+
+    # Set starting cwd to the correct home directory for the login username.
+    # generate_prompt() maps cwd==home_dir to "~", so this ensures the initial
+    # prompt shows "~" instead of "/root" for non-root usernames.
+    if _login_username == "root":
+        session_state["cwd"] = "/root"
+    else:
+        _user_home = f"/home/{_login_username}"
+        session_state["cwd"] = _user_home
+        # Ensure the attacker's home dir exists in the fake filesystem so that
+        # 'cd', 'ls', and other commands work without "No such file" errors.
+        session_state["directories"].add(_user_home)
+        session_state["directories"].add(f"{_user_home}/.ssh")
+        session_state["directories"].add(f"{_user_home}/.cache")
 
     # Initialize TTY handler for realistic terminal emulation
     tty_handler = TTYHandler(
         session_state=session_state,
         hostname=config.honeypot.hostname,
-        username=server.successful_username or "root",
+        username=_login_username,
     )
+    # Store a reference to the TTY state in session_state so command handlers
+    # (e.g. the 'history' builtin) can read the in-session command history.
+    session_state["tty_state"] = tty_handler.tty_state
 
     # Send fake banner and initial prompt (use CRLF for terminals)
     os_banner = (
@@ -514,7 +628,7 @@ def _handle_client(
         f"(GNU/Linux {config.honeypot.kernel_version} x86_64)"
     )
     chan.send((os_banner + "\r\n").encode("utf-8"))
-    chan.send(b"Last login: just now from unknown\r\n")
+    chan.send((_fake_last_login() + "\r\n").encode("utf-8"))
     chan.send(tty_handler.get_prompt().encode("utf-8"))
 
     # Register this session as live for real-time dashboard

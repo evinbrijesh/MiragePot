@@ -11,6 +11,7 @@ Example:
 from __future__ import annotations
 
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
@@ -200,17 +201,22 @@ class Config:
 
 # Global configuration instance
 _config: Optional[Config] = None
+_config_lock: threading.Lock = threading.Lock()
 
 
 def get_config() -> Config:
-    """Get the global configuration instance.
+    """Get the global configuration instance (thread-safe).
 
     Creates a new instance if one doesn't exist.
     Configuration is loaded from environment variables.
     """
     global _config
     if _config is None:
-        _config = Config()
+        with _config_lock:
+            # Double-checked locking: re-check inside the lock to avoid a
+            # race where two threads both see _config as None simultaneously.
+            if _config is None:
+                _config = Config()
     return _config
 
 

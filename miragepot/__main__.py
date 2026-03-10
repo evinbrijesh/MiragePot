@@ -100,6 +100,19 @@ def run_server(host: str, port: int) -> None:
     # Import here to avoid circular imports
     from .server import HoneypotServer
     from .ai_interface import verify_ollama_setup
+    from .metrics import start_metrics_server
+
+    # Start Prometheus metrics server so Prometheus can scrape it.
+    # Must be called before HoneypotServer.run() — that method skips this
+    # step on the assumption the CLI entry point already started it.
+    metrics_port = 9090
+    try:
+        start_metrics_server(port=metrics_port, host="0.0.0.0")
+        logging.info(
+            "Prometheus metrics available at http://0.0.0.0:%d/metrics", metrics_port
+        )
+    except Exception as e:
+        logging.warning("Failed to start metrics server: %s", e)
 
     # Check Ollama status
     ollama_ok, ollama_msg = verify_ollama_setup()

@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import json
 import logging
+import random
 import re
 import secrets
+import time
 import unicodedata
 from pathlib import Path
 from typing import Any, Dict, Tuple, Optional, cast
@@ -740,6 +742,22 @@ def init_session_state() -> Dict[str, Any]:
     session_id = generate_session_id()
     honeytokens = init_honeytokens(session_id)
     hostname = get_config().honeypot.hostname
+
+    # Compute dynamic /proc values so they reflect real elapsed time and
+    # don't expose a static "frozen" value that is trivially detectable.
+    # uptime = seconds since a random boot time 30–90 days ago.
+    _boot_offset = time.time() - (
+        random.randint(30, 90) * 86400 + random.randint(0, 86399)
+    )
+    _uptime_secs = time.time() - _boot_offset
+    # idle time ≈ 2× uptime (multi-core idle accumulation, realistic for a lightly used server)
+    _idle_secs = _uptime_secs * (1.8 + random.uniform(0, 0.4))
+    _proc_uptime = f"{_uptime_secs:.2f} {_idle_secs:.2f}\n"
+    # loadavg: light load typical for a production server at rest
+    _la1 = round(random.uniform(0.05, 0.35), 2)
+    _la5 = round(random.uniform(0.03, 0.25), 2)
+    _la15 = round(random.uniform(0.01, 0.20), 2)
+    _proc_loadavg = f"{_la1} {_la5} {_la15} 1/{random.randint(200, 300)} {random.randint(1000, 9999)}\n"
 
     # Comprehensive Ubuntu 20.04 directory structure
     directories = {
@@ -1520,8 +1538,8 @@ def init_session_state() -> Dict[str, Any]:
             "SwapTotal:       2097148 kB\n"
             "SwapFree:        2097148 kB\n"
         ),
-        "/proc/uptime": "3640500.00 7136180.00\n",
-        "/proc/loadavg": "0.15 0.10 0.05 1/234 5678\n",
+        "/proc/uptime": _proc_uptime,
+        "/proc/loadavg": _proc_loadavg,
         # P1.1-03: /proc/self pseudo-files — empty cmdline (process name hidden)
         # and a sanitised environ with no real host secrets.
         "/proc/self/cmdline": "bash\x00",
@@ -1742,7 +1760,16 @@ def _handle_ls(args: str, state: Dict[str, Any]) -> str:
             continue
 
         if long_format:
-            total_blocks = len(children) * 4
+            # Calculate total blocks from actual file sizes (matching GNU ls behaviour:
+            # 1 block = 512 bytes, directories count as 8 blocks = 4096 bytes each).
+            total_blocks = 0
+            for _name, _typ, _fp in children:
+                _meta = file_metadata.get(_fp)
+                if _meta:
+                    _sz = _meta.size
+                else:
+                    _sz = 4096 if _typ == "d" else len(files.get(_fp, ""))
+                total_blocks += max(8, (_sz + 511) // 512)
             section_lines.append(f"total {total_blocks}")
 
             for name, typ, full_path in children:
@@ -2305,6 +2332,20 @@ def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     if is_download_command(stripped):
         return True, _handle_download_command(stripped, state)
 
+    # history — return in-session command history (never send to LLM)
+    if stripped == "history" or stripped.startswith("history "):
+        from .tty_handler import TTYState as _TTYState  # avoid circular at module level
+
+        tty_st = state.get("tty_state")
+        if tty_st is not None and hasattr(tty_st, "command_history"):
+            hist = tty_st.command_history
+        else:
+            hist = []
+        if not hist:
+            return True, ""
+        lines = [f"  {i + 1}  {cmd}" for i, cmd in enumerate(hist)]
+        return True, "\n".join(lines) + "\n"
+
     return False, ""
 
 
@@ -2446,16 +2487,17 @@ def _has_suspicious_encoding(command: str) -> bool:
     base64_pattern = r"[A-Za-z0-9+/=]{20,}"
     base64_matches = re.findall(base64_pattern, command)
     for match in base64_matches:
-        # Try to decode and check for injection keywords
+        # Try to decode and check for injection keywords.
+        # A decode failure means the string is *not* valid base64, so it is
+        # almost certainly a legitimate long argument (hash, token, path, etc.)
+        # and should NOT be treated as suspicious.
         try:
             decoded = _base64.b64decode(match).decode("utf-8", errors="ignore")
             if _contains_injection(decoded):
                 return True
-        except _binascii.Error as exc:
-            LOGGER.warning(
-                "Unicode injection check failed, treating as suspicious: %s", exc
-            )
-            return True  # fail closed — safer than fail open
+        except _binascii.Error:
+            # Not valid base64 — not an injection attempt, skip.
+            pass
 
     # P3-05: Check for hex-encoded strings (\x41\x42... or $'\x41')
     hex_escape_pattern = r"(?:\\x[0-9a-fA-F]{2}){4,}"
