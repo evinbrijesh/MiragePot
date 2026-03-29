@@ -66,6 +66,7 @@ paramiko_logger.setLevel(
 config = get_config()
 LOG_DIR = config.logs_dir
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+DATA_DIR = config.data_dir
 
 SSH_PORT = 2222
 
@@ -198,8 +199,8 @@ def _rotate_logs(log_dir: Path, max_age_days: int = 30, max_files: int = 10000) 
                 if mtime < cutoff:
                     f.unlink()
                     deleted += 1
-            except Exception:
-                pass
+            except (OSError, ValueError) as e:
+                LOGGER.error("Failed to delete old session file %s: %s", f.name, e)
 
         # Then enforce file count cap on the remainder
         remaining = sorted(
@@ -212,8 +213,10 @@ def _rotate_logs(log_dir: Path, max_age_days: int = 30, max_files: int = 10000) 
                 try:
                     f.unlink()
                     deleted += 1
-                except Exception:
-                    pass
+                except OSError as e:
+                    LOGGER.error(
+                        "Failed to delete excess session file %s: %s", f.name, e
+                    )
 
         if deleted:
             LOGGER.info("Log rotation: deleted %d old session log(s)", deleted)
@@ -286,14 +289,15 @@ def _update_live_sessions(session_log: Dict[str, Any], remove: bool = False) -> 
                 os.fsync(tmp_fd)
                 os.close(tmp_fd)
                 os.rename(tmp_path, LIVE_SESSIONS_FILE)
-            except Exception:
+            except OSError as e:
+                LOGGER.error("Failed to write live sessions file: %s", e)
                 os.close(tmp_fd)
                 try:
                     os.unlink(tmp_path)
-                except Exception:
-                    pass
+                except OSError:
+                    pass  # Best effort cleanup
                 raise
-    except Exception as exc:
+    except (OSError, TypeError, ValueError) as exc:
         LOGGER.debug("Failed to update live sessions: %s", exc)
 
 
@@ -619,8 +623,8 @@ def _handle_client(
     for key in extra_keys or []:
         try:
             transport.add_server_key(key)
-        except Exception:
-            pass
+        except (paramiko.SSHException, ValueError) as e:
+            LOGGER.error("Failed to add extra host key: %s", e)
     LOGGER.debug("Added host key(s) to transport for %s:%s", attacker_ip, attacker_port)
 
     server = SSHServer()
@@ -752,8 +756,8 @@ def _handle_client(
                 chan.send(response.encode("utf-8"))
             chan.send_exit_status(0)
             chan.close()
-        except Exception:
-            pass
+        except (paramiko.SSHException, OSError) as e:
+            LOGGER.error("Failed to send final response to client: %s", e)
 
         # Persist session log and finish
         end_time = time.time()

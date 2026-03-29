@@ -9,6 +9,8 @@ services:
       - ./entrypoint-ollama.sh:/entrypoint-ollama.sh:ro
     environment:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-phi3}
+      # Keep model loaded in memory for faster responses
+      - OLLAMA_KEEP_ALIVE=24h
     entrypoint: ["/bin/bash", "/entrypoint-ollama.sh"]
     networks:
       - miragepot-net
@@ -19,18 +21,23 @@ services:
           cpus: "4.0"
         reservations:
           memory: 2g
+    # Simplified healthcheck - just check if server is responding
     healthcheck:
-      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/11434' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 60s
+      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
 
   # MiragePot SSH Honeypot
   miragepot:
     build:
       context: ..
       dockerfile: docker/Dockerfile
+      # Enable BuildKit caching for faster rebuilds
+      cache_from:
+        - miragepot:latest
+    image: miragepot:latest
     container_name: miragepot-honeypot
     restart: unless-stopped
     ports:
@@ -40,17 +47,17 @@ services:
     volumes:
       - ../data/logs:/app/data/logs
       - ../data/profiles:/app/data/profiles
-      - ../data/cache.json:/app/data/cache.json
-      - ../data/system_prompt.txt:/app/data/system_prompt.txt:ro
+      # NOTE: cache.json and system_prompt.txt now in miragepot/ package directory
     env_file:
       - ../.env.docker
     environment:
       - MIRAGEPOT_SSH_HOST=0.0.0.0
       - MIRAGEPOT_SSH_PORT=2222
       - OLLAMA_HOST=http://ollama:11434
+    # DON'T wait for Ollama - honeypot can start without it and retry
     depends_on:
       ollama:
-        condition: service_healthy
+        condition: service_started
     networks:
       - miragepot-net
     deploy:
@@ -67,11 +74,12 @@ services:
     cap_add:
       - NET_BIND_SERVICE
     healthcheck:
-      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.connect(('localhost', 2222)); s.close()"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      # Optimized: faster timeout, fewer retries
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', 2222)); s.close()"]
+      interval: 10s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
 
   # Prometheus metrics collection
   prometheus:
@@ -105,10 +113,10 @@ services:
       - ALL
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9090/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 15s
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 10s
 
   # Alertmanager for notifications
   alertmanager:
@@ -138,10 +146,10 @@ services:
       - ALL
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
 
   # Grafana dashboards
   grafana:
@@ -177,10 +185,10 @@ services:
       - ALL
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
+      interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 15s
 
 networks:
   miragepot-net:
@@ -195,4 +203,3 @@ volumes:
     driver: local
   grafana-data:
     driver: local
-

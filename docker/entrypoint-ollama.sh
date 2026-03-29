@@ -4,53 +4,49 @@ set -e
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🚀 MiragePot AI Engine - Initializing"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
 
-# Start Ollama server in background
-echo "📡 Starting Ollama server..."
-ollama serve &
-OLLAMA_PID=$!
-
-# Wait for server to be ready
-echo "⏳ Waiting for Ollama to initialize..."
-sleep 10
-
-# Check if model is already downloaded
 MODEL="${OLLAMA_MODEL:-phi3}"
-echo "🔍 Checking for AI model: $MODEL"
 
-if ollama list | grep -q "$MODEL"; then
-    echo "✅ Model '$MODEL' found in cache - ready to go!"
-else
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "📥 First-Time Setup: Downloading AI Model"
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "   Model: $MODEL (~2GB)"
-    echo "   Expected time: 2-5 minutes"
-    echo "   ☕ Grab a coffee! This only happens once."
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
+# Function to ensure model is available (runs in background)
+ensure_model() {
+    # Wait for server to be ready
+    while ! curl -sf http://localhost:11434/ >/dev/null 2>&1; do
+        sleep 1
+    done
     
-    if ollama pull "$MODEL"; then
-        echo ""
-        echo "✅ Model downloaded and cached successfully!"
-        echo "   Future starts will be instant."
+    echo "🔍 Checking for AI model: $MODEL"
+    
+    if ollama list 2>/dev/null | grep -q "$MODEL"; then
+        echo "✅ Model '$MODEL' found in cache!"
+        # Pre-warm the model by loading it into memory
+        echo "🔥 Pre-warming model..."
+        curl -sf http://localhost:11434/api/generate -d "{\"model\":\"$MODEL\",\"prompt\":\"hi\",\"stream\":false}" >/dev/null 2>&1 || true
+        echo "✅ Model ready!"
     else
         echo ""
-        echo "❌ Failed to download model!"
-        echo "   Check your internet connection and try again."
-        exit 1
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "📥 First-Time Setup: Downloading AI Model"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "   Model: $MODEL (~2GB)"
+        echo "   ☕ This only happens once!"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        
+        if ollama pull "$MODEL"; then
+            echo "✅ Model downloaded successfully!"
+        else
+            echo "❌ Failed to download model!"
+        fi
     fi
-fi
+    
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "✅ AI Engine Ready"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "✅ AI Engine Ready"
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo ""
+# Start model check in background so server starts immediately
+ensure_model &
 
-# Keep Ollama running in foreground
-wait $OLLAMA_PID
+# Start Ollama server in foreground (this makes container healthy faster)
+echo "📡 Starting Ollama server..."
+exec ollama serve

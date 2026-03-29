@@ -17,6 +17,7 @@ Author: Evin Brijesh
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 import re
@@ -44,6 +45,8 @@ except ImportError:
 # GeoIP is now handled via free IP-API (no geoip2 dependency needed)
 GEOIP_AVAILABLE = True  # Always available via IP-API fallback
 
+LOGGER = logging.getLogger(__name__)
+
 BASE_DIR = Path(__file__).resolve().parents[1]
 LOG_DIR = BASE_DIR / "data" / "logs"
 TAGS_FILE = BASE_DIR / "data" / "session_tags.json"
@@ -68,8 +71,12 @@ ATTACK_STAGES = [
 # ============================================================================
 
 
+@st.cache_data(ttl=30)
 def load_session_logs() -> List[Dict[str, Any]]:
-    """Load all session logs from disk."""
+    """Load all session logs from disk.
+
+    Phase 3.3: Cached with 30s TTL to avoid repeated disk reads during dashboard use.
+    """
     sessions: List[Dict[str, Any]] = []
     if not LOG_DIR.exists():
         return sessions
@@ -77,29 +84,43 @@ def load_session_logs() -> List[Dict[str, Any]]:
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             sessions.append(data)
-        except Exception:
+        except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError) as e:
+            LOGGER.warning("Failed to load session from %s: %s", path.name, e)
             continue
     return sessions
 
 
+@st.cache_data(ttl=60)
 def load_session_tags() -> Dict[str, List[str]]:
-    """Load session tags from file."""
+    """Load session tags from file.
+
+    Phase 3.3: Cached with 60s TTL since tags change less frequently than sessions.
+    """
     if TAGS_FILE.exists():
         try:
             return json.loads(TAGS_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            LOGGER.warning("Failed to load session tags: %s", e)
     return {}
 
 
 def save_session_tags(tags: Dict[str, List[str]]) -> None:
-    """Save session tags to file."""
+    """Save session tags to file.
+
+    Phase 3.3: Also clears the load_session_tags cache after saving.
+    """
     TAGS_FILE.parent.mkdir(parents=True, exist_ok=True)
     TAGS_FILE.write_text(json.dumps(tags, indent=2), encoding="utf-8")
+    # Clear cache so next load sees the new data
+    load_session_tags.clear()
 
 
+@st.cache_data(ttl=10)
 def load_live_sessions() -> List[Dict[str, Any]]:
-    """Load active/live session data if available."""
+    """Load active/live session data if available.
+
+    Phase 3.3: Cached with 10s TTL since live data changes frequently.
+    """
     if LIVE_SESSION_FILE.exists():
         try:
             data = json.loads(LIVE_SESSION_FILE.read_text(encoding="utf-8"))
@@ -115,11 +136,13 @@ def load_live_sessions() -> List[Dict[str, Any]]:
                         )
                         if last_time > cutoff:
                             active.append(sess)
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError) as e:
+                        LOGGER.warning(
+                            "Failed to parse timestamp %s: %s", last_activity, e
+                        )
             return active
-        except Exception:
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            LOGGER.warning("Failed to load live sessions: %s", e)
     return []
 
 
@@ -320,7 +343,8 @@ def get_geo_info_via_api(ip: str) -> Dict[str, Any]:
         _geo_cache[ip] = result
         return result
 
-    except Exception:
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as e:
+        LOGGER.warning("GeoIP lookup failed for %s: %s", ip, e)
         result = {
             "country": "Unknown",
             "city": "Unknown",
@@ -386,7 +410,8 @@ def batch_geolocate_ips(ips: Tuple[str, ...]) -> Dict[str, Dict[str, Any]]:
                     "longitude": 0,
                 }
 
-    except Exception:
+    except (urllib.error.URLError, json.JSONDecodeError, KeyError, ValueError) as e:
+        LOGGER.warning("Batch GeoIP lookup failed: %s", e)
         # Fallback: mark all as unknown
         for ip in unique_ips:
             if ip not in results:
@@ -449,16 +474,40 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
     if live_sessions:
         st.markdown("#### Live Terminal Feed")
 
-        # Create terminal-style display
-        terminal_css = """
+        # Aggregate recent commands from all active sessions
+        all_cmds = []
+        for sess in live_sessions:
+            ip = sess.get("attacker_ip", "unknown")
+            for cmd in sess.get("commands", [])[-10:]:  # Last 10 per session
+                ts = cmd.get("timestamp", "")
+                all_cmds.append(
+                    {
+                        "timestamp": ts,
+                        "ip": ip,
+                        "command": cmd.get("command", ""),
+                        "response": cmd.get("response", "")[:200],  # Truncate
+                    }
+                )
+
+        # Sort by timestamp and take most recent
+        all_cmds.sort(key=lambda x: x["timestamp"], reverse=True)
+        recent_cmds = all_cmds[:15]
+
+        # Build HTML with inline CSS
+        terminal_html = """
         <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: transparent;
+            font-family: 'Monaco', 'Consolas', monospace;
+        }
         .live-terminal {
             background: #0d0d0d;
             border-radius: 8px;
             padding: 15px;
-            font-family: 'Monaco', 'Consolas', monospace;
             font-size: 12px;
-            max-height: 300px;
+            max-height: 280px;
             overflow-y: auto;
             border: 1px solid #333;
         }
@@ -480,36 +529,17 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
             white-space: pre-wrap;
         }
         </style>
+        <div class="live-terminal">
         """
-        st.markdown(terminal_css, unsafe_allow_html=True)
 
-        # Aggregate recent commands from all active sessions
-        all_cmds = []
-        for sess in live_sessions:
-            ip = sess.get("attacker_ip", "unknown")
-            for cmd in sess.get("commands", [])[-10:]:  # Last 10 per session
-                ts = cmd.get("timestamp", "")
-                all_cmds.append(
-                    {
-                        "timestamp": ts,
-                        "ip": ip,
-                        "command": cmd.get("command", ""),
-                        "response": cmd.get("response", "")[:200],  # Truncate
-                    }
-                )
-
-        # Sort by timestamp and take most recent
-        all_cmds.sort(key=lambda x: x["timestamp"], reverse=True)
-        recent_cmds = all_cmds[:15]
-
-        terminal_html = '<div class="live-terminal">'
         for cmd in reversed(recent_cmds):
             ts = cmd["timestamp"]
             if ts:
                 try:
                     dt = parse_timestamp(ts)
                     time_str = dt.strftime("%H:%M:%S") if dt else ts[:19]
-                except Exception:
+                except (ValueError, TypeError, AttributeError) as e:
+                    LOGGER.warning("Failed to parse command timestamp %s: %s", ts, e)
                     time_str = ts[:19]
             else:
                 time_str = "??:??:??"
@@ -526,7 +556,11 @@ def render_live_sessions_panel(sessions: List[Dict[str, Any]]) -> None:
                 terminal_html += f'<div class="live-response">{resp}</div>'
 
         terminal_html += "</div>"
-        st.markdown(terminal_html, unsafe_allow_html=True)
+
+        # Use st.components for better HTML rendering
+        import streamlit.components.v1 as components
+
+        components.html(terminal_html, height=320, scrolling=True)
     else:
         st.info("No active sessions. Waiting for attackers...")
 
@@ -715,8 +749,10 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
                 from datetime import datetime
 
                 session_start = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
-            except Exception:
-                pass
+            except (ValueError, TypeError) as e:
+                LOGGER.warning(
+                    "Failed to parse session start timestamp %s: %s", first_ts, e
+                )
 
     if indicators:
         st.markdown("#### TTP Attack Timeline")
@@ -740,7 +776,10 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
                     ind_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
                     elapsed = (ind_time - session_start).total_seconds()
                     relative_time = f"T+{int(elapsed)}s"
-                except Exception:
+                except (ValueError, TypeError) as e:
+                    LOGGER.warning(
+                        "Failed to calculate relative time for indicator: %s", e
+                    )
                     pass
 
             # Color by confidence

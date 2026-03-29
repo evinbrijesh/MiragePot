@@ -275,8 +275,8 @@ def extract_fingerprint_from_transport(transport: paramiko.Transport) -> SSHFing
     try:
         # Get client version string (e.g., "SSH-2.0-OpenSSH_8.9p1")
         fingerprint.client_version = transport.remote_version or ""
-    except Exception:
-        pass
+    except AttributeError as e:
+        LOGGER.error("Failed to get client version: %s", e)
 
     # Try to extract security options from transport
     # These are negotiated during key exchange
@@ -408,7 +408,8 @@ class SSHServer(paramiko.ServerInterface):
         # Get key fingerprint for logging
         try:
             key_fp = key.get_fingerprint().hex()
-        except Exception:
+        except (AttributeError, ValueError) as e:
+            LOGGER.error("Failed to get key fingerprint: %s", e)
             key_fp = "unknown"
 
         attempt = AuthAttempt(
@@ -449,7 +450,8 @@ class SSHServer(paramiko.ServerInterface):
                 if isinstance(term, bytes)
                 else str(term)
             )
-        except Exception:
+        except (UnicodeDecodeError, AttributeError) as e:
+            LOGGER.error("Failed to decode terminal type: %s", e)
             term_str = "unknown"
 
         self.pty_info = {
@@ -473,7 +475,8 @@ class SSHServer(paramiko.ServerInterface):
         """Accept exec requests and capture the command."""
         try:
             self.exec_command = command.decode("utf-8", errors="replace")
-        except Exception:
+        except (UnicodeDecodeError, AttributeError) as e:
+            LOGGER.error("Failed to decode exec command: %s", e)
             self.exec_command = str(command)
 
         LOGGER.debug("Exec request: %s", self.exec_command)

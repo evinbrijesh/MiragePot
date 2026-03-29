@@ -33,8 +33,8 @@ try:
 except ImportError:
     OLLAMA_AVAILABLE = False
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-SYSTEM_PROMPT_PATH = DATA_DIR / "system_prompt.txt"
+MIRAGEPOT_DIR = Path(__file__).resolve().parent  # Package directory for static assets
+SYSTEM_PROMPT_PATH = MIRAGEPOT_DIR / "system_prompt.txt"
 
 LOGGER = logging.getLogger(__name__)
 
@@ -49,6 +49,50 @@ _ollama_verified = False
 _ollama_last_check = 0.0
 _OLLAMA_CHECK_INTERVAL = 30.0  # Re-check every 30 seconds if previously failed
 _ollama_lock = threading.Lock()  # H2: protect _ollama_verified/_ollama_last_check
+
+# Phase 3.1: In-session LLM response cache
+# Maps (command, cwd) -> response for duplicate commands within same session
+# This is cleared per-session but avoids repeated LLM calls for identical commands
+_SESSION_LLM_CACHE: Dict[tuple, str] = {}
+_SESSION_LLM_CACHE_LOCK = threading.Lock()
+_SESSION_LLM_CACHE_MAX_SIZE = 100  # Cap cache size to prevent memory bloat
+
+
+def get_session_llm_cache_key(command: str, session_state: Dict[str, Any]) -> tuple:
+    """Generate a cache key for in-session LLM cache."""
+    return (command, session_state.get("cwd", "/root"))
+
+
+def get_cached_llm_response(
+    command: str, session_state: Dict[str, Any]
+) -> Optional[str]:
+    """Get cached LLM response for command if available."""
+    key = get_session_llm_cache_key(command, session_state)
+    with _SESSION_LLM_CACHE_LOCK:
+        return _SESSION_LLM_CACHE.get(key)
+
+
+def cache_llm_response(
+    command: str, session_state: Dict[str, Any], response: str
+) -> None:
+    """Cache LLM response for command."""
+    key = get_session_llm_cache_key(command, session_state)
+    with _SESSION_LLM_CACHE_LOCK:
+        # Evict oldest entries if cache is full
+        if len(_SESSION_LLM_CACHE) >= _SESSION_LLM_CACHE_MAX_SIZE:
+            # Simple FIFO eviction - remove first item
+            try:
+                first_key = next(iter(_SESSION_LLM_CACHE))
+                del _SESSION_LLM_CACHE[first_key]
+            except (StopIteration, KeyError):
+                pass
+        _SESSION_LLM_CACHE[key] = response
+
+
+def clear_session_llm_cache() -> None:
+    """Clear the in-session LLM cache (call at session end)."""
+    with _SESSION_LLM_CACHE_LOCK:
+        _SESSION_LLM_CACHE.clear()
 
 
 def _load_system_prompt() -> str:
@@ -476,15 +520,25 @@ def query_llm(
     session state. Any errors are caught and turned into a generic
     terminal-style error message.
 
+    Phase 3.1: Includes in-session LLM cache to avoid duplicate calls
+    for identical commands within the same session.
+
     Args:
         command: The shell command to generate output for
         session_state: Current session state (cwd, files, directories)
-        timeout: Maximum time to wait for LLM response (seconds)
+        timeout: Maximum time to wait for LLM response (seconds) - IGNORED, hard-coded to 10s
 
     Returns:
         Terminal-like output string
     """
     metrics = get_metrics_collector()
+
+    # Phase 3.1: Check in-session LLM cache first
+    cached_response = get_cached_llm_response(command, session_state)
+    if cached_response is not None:
+        LOGGER.debug("In-session LLM cache hit for command: %s", command)
+        metrics.record_cache_hit()
+        return cached_response
 
     # Check if Ollama is available
     if not check_ollama_connection():
@@ -498,6 +552,8 @@ def query_llm(
     start_time = time.time()
     try:
         cfg = get_config().llm
+        # SECURITY: Hard 10-second timeout (Phase 2.2)
+        llm_timeout = 10.0
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
             future = executor.submit(
                 ollama.chat,
@@ -511,7 +567,7 @@ def query_llm(
                     "num_predict": cfg.max_tokens,
                 },
             )
-            response = future.result(timeout=cfg.timeout)
+            response = future.result(timeout=llm_timeout)
         latency = time.time() - start_time
         # C3: Typed ollama ChatResponse objects expose response.message.content;
         # dict-style responses (older library) support .get().  Handle both.
@@ -549,6 +605,9 @@ def query_llm(
 
         content = validation_result.response
 
+        # SECURITY: Apply final sanitization (Phase 2.2)
+        content = sanitize_llm_response(content)
+
         # Final sanitization for terminal output
         content = sanitize_for_terminal(content)
 
@@ -556,8 +615,19 @@ def query_llm(
         if content and not content.endswith("\n"):
             content += "\n"
 
+        # Phase 3.1: Cache the response for this session
+        cache_llm_response(command, session_state, content)
+
         return content
 
+    except concurrent.futures.TimeoutError:
+        latency = time.time() - start_time
+        LOGGER.warning(
+            "LLM query timed out after %.1fs for command '%s'", latency, command
+        )
+        metrics.record_llm_request(_get_model(), "timeout", latency)
+        # SECURITY: Timeout fallback (Phase 2.2)
+        return "bash: command timed out\n"
     except Exception as exc:
         latency = time.time() - start_time
         LOGGER.error("Error querying LLM for command '%s': %s", command, exc)
@@ -569,6 +639,63 @@ def query_llm(
         global _ollama_verified
         _ollama_verified = False
         return _generate_fallback_response(command)
+
+
+def sanitize_llm_response(response: str) -> str:
+    """Sanitize LLM response for security and length constraints.
+
+    Performs final security hardening on LLM output:
+    - Strips meta-commentary and explanations
+    - Removes code fences wrapping entire response
+    - Truncates to 2048 characters (~512 tokens max)
+    - Strips leading/trailing whitespace
+
+    This is applied AFTER validate_response() but BEFORE terminal output.
+    """
+    if not response:
+        return response
+
+    # Strip meta-commentary lines (explanations added by LLM)
+    lines = response.split("\n")
+    filtered_lines = []
+    for line in lines:
+        stripped = line.strip()
+        # Skip lines that are LLM meta-commentary
+        if stripped.startswith(
+            (
+                "Note:",
+                "Explanation:",
+                "This command",
+                "This output",
+                "In a real",
+                "The output",
+                "Here's",
+                "Here is",
+            )
+        ):
+            continue
+        filtered_lines.append(line)
+
+    response = "\n".join(filtered_lines)
+
+    # Remove code fences if wrapping entire response
+    response = response.strip()
+    if response.startswith("```") and response.endswith("```"):
+        lines = response.split("\n")
+        # Remove first line (opening ```) and last line (closing ```)
+        if (
+            len(lines) >= 3
+            and lines[0].startswith("```")
+            and lines[-1].strip() == "```"
+        ):
+            response = "\n".join(lines[1:-1])
+
+    # Truncate to 2048 chars (~512 tokens)
+    if len(response) > 2048:
+        response = response[:2048]
+
+    # Strip leading/trailing whitespace
+    return response.strip()
 
 
 def _clean_llm_response(content: str, command: str) -> str:

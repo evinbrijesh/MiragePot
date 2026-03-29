@@ -82,10 +82,13 @@ from .metrics import get_metrics_collector
 from .defense_module import calculate_threat_score
 from .config import get_config
 
-DATA_DIR = Path(__file__).resolve().parents[1] / "data"
-CACHE_PATH = DATA_DIR / "cache.json"
+MIRAGEPOT_DIR = Path(__file__).resolve().parent  # Package directory for static assets
+CACHE_PATH = MIRAGEPOT_DIR / "cache.json"
 
 LOGGER = logging.getLogger(__name__)
+
+# SECURITY: Maximum command length (Phase 2.3)
+MAX_COMMAND_LENGTH = 4096
 
 # P3-14: Per-process exit sentinel — a random token generated at import time so
 # that an attacker who knows the source code cannot predict or forge it.
@@ -486,7 +489,8 @@ def _load_cache() -> Dict[str, str]:
             return substituted
 
         return data
-    except Exception:
+    except (FileNotFoundError, json.JSONDecodeError, OSError) as e:
+        LOGGER.error("Failed to load command cache: %s", e)
         return {}
 
 
@@ -1598,15 +1602,26 @@ def _normalize_path(cwd: str, target: str) -> str:
 
     # P1.1-01: Resolve . and .. components
     parts: list = []
+    escape_attempts = 0  # Track attempts to go above root
     for component in path.split("/"):
         if component == "" or component == ".":
             continue
         elif component == "..":
             if parts:
                 parts.pop()
-            # Already at root — stay there
+            else:
+                # SECURITY: Attempt to escape above root (Phase 2.3)
+                escape_attempts += 1
         else:
             parts.append(component)
+
+    # Log suspicious path traversal attempts
+    if escape_attempts > 0:
+        LOGGER.warning(
+            "Path traversal attempt detected: '%s' tried to escape root %d time(s)",
+            target,
+            escape_attempts,
+        )
 
     resolved = "/" + "/".join(parts)
     return resolved if resolved != "/" else "/"
@@ -2197,156 +2212,172 @@ def _cmd_matches(stripped: str, name: str) -> bool:
     return stripped.startswith(name + " ")
 
 
+def _handle_echo(stripped: str, state: Dict[str, Any]) -> str:
+    """Handle echo command with env var expansion."""
+    # Delegate redirection forms first
+    handled_redir, out_redir = _handle_echo_redirection(stripped, state)
+    if handled_redir:
+        return out_redir
+    # Plain echo: expand simple $VAR references from a small env dict
+    _env = {
+        "$SHELL": "/bin/bash",
+        "$USER": state.get("username", "root"),
+        "$HOME": "/root",
+        "$PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+        "$0": "-bash",
+        "$PWD": state.get("cwd", "/root"),
+        "$LOGNAME": state.get("username", "root"),
+    }
+    text = stripped[5:].strip() if stripped.startswith("echo ") else ""
+    # Remove surrounding quotes
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
+        text = text[1:-1]
+    # Expand env vars
+    for var, val in _env.items():
+        text = text.replace(var, val)
+    return text + "\n"
+
+
+def _handle_history(stripped: str, state: Dict[str, Any]) -> str:
+    """Handle history command."""
+    from .tty_handler import TTYState as _TTYState  # avoid circular at module level
+
+    tty_st = state.get("tty_state")
+    if tty_st is not None and hasattr(tty_st, "command_history"):
+        hist = tty_st.command_history
+    else:
+        hist = []
+    if not hist:
+        return ""
+    lines = [f"  {i + 1}  {cmd}" for i, cmd in enumerate(hist)]
+    return "\n".join(lines) + "\n"
+
+
+# Phase 3.1: O(1) dispatch dict for builtin commands
+# Maps command name -> (handler_func, args_offset)
+# handler_func takes (args, state) and returns str output
+# args_offset is where args start after command name (e.g., "cd " = 3)
+def _get_builtin_dispatch() -> Dict[str, tuple]:
+    """Build dispatch dict for builtin commands (lazy initialization)."""
+    return {
+        "pwd": (lambda args, state: _handle_pwd(state), 3),
+        "cd": (lambda args, state: _handle_cd(args, state), 3),
+        "mkdir": (lambda args, state: _handle_mkdir(args, state), 6),
+        "touch": (lambda args, state: _handle_touch(args, state), 6),
+        "ls": (lambda args, state: _handle_ls(args, state), 3),
+        "cat": (lambda args, state: _handle_cat(args, state), 4),
+        "rm": (lambda args, state: _handle_rm(args, state), 3),
+        "stat": (lambda args, state: handle_stat_command(args, state), 5),
+        "chmod": (lambda args, state: handle_chmod_command(args, state), 6),
+        "chown": (lambda args, state: handle_chown_command(args, state), 6),
+        "find": (lambda args, state: handle_find_command(args, state), 5),
+        "id": (lambda args, state: handle_id_command(args, state), 3),
+        "uname": (lambda args, state: handle_uname_command(args), 6),
+    }
+
+
+# System state commands dispatch (need sys_state not just state)
+def _get_sysstate_dispatch() -> Dict[str, tuple]:
+    """Build dispatch dict for system state commands."""
+    return {
+        "ps": (lambda args, sys_state: handle_ps_command(args, sys_state), 3),
+        "netstat": (lambda args, sys_state: handle_netstat_command(args, sys_state), 8),
+        "ss": (lambda args, sys_state: handle_ss_command(args, sys_state), 3),
+        "free": (lambda args, sys_state: handle_free_command(args, sys_state), 5),
+    }
+
+
+# Exact match commands (no args)
+_EXACT_MATCH_COMMANDS: Dict[str, str] = {
+    "uptime": "uptime",
+    "w": "w",
+    "who": "who",
+    "hostname": "hostname",
+    "whoami": "whoami",
+}
+
+# Lazy-initialized dispatch dicts (populated on first use)
+_BUILTIN_DISPATCH: Optional[Dict[str, tuple]] = None
+_SYSSTATE_DISPATCH: Optional[Dict[str, tuple]] = None
+
+
 def handle_builtin(command: str, state: Dict[str, Any]) -> Tuple[bool, str]:
     """Handle built-in filesystem-related commands.
 
+    Phase 3.1: Uses O(1) dispatch dict lookup instead of if/elif chain.
     Returns (handled, output).
     """
+    global _BUILTIN_DISPATCH, _SYSSTATE_DISPATCH
+
     stripped = command.strip()
     if not stripped:
         return True, ""  # empty command, just re-prompt
 
+    # Lazy initialization of dispatch dicts
+    if _BUILTIN_DISPATCH is None:
+        _BUILTIN_DISPATCH = _get_builtin_dispatch()
+    if _SYSSTATE_DISPATCH is None:
+        _SYSSTATE_DISPATCH = _get_sysstate_dispatch()
+
     # P3-02: Handle plain `echo` entirely in the builtin layer — never send echo
     # content to the LLM.  The LLM could inadvertently repeat attacker-supplied
     # text back into the response, or the content could be a prompt injection.
-    # Handles: echo, echo TEXT, echo "TEXT", echo $VAR, echo TEXT > file (via redir).
     if stripped == "echo" or stripped.startswith("echo "):
-        # Delegate redirection forms first
-        handled_redir, out_redir = _handle_echo_redirection(stripped, state)
-        if handled_redir:
-            return True, out_redir
-        # Plain echo: expand simple $VAR references from a small env dict
-        _env = {
-            "$SHELL": "/bin/bash",
-            "$USER": state.get("username", "root"),
-            "$HOME": "/root",
-            "$PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-            "$0": "-bash",
-            "$PWD": state.get("cwd", "/root"),
-            "$LOGNAME": state.get("username", "root"),
-        }
-        text = stripped[5:].strip() if stripped.startswith("echo ") else ""
-        # Remove surrounding quotes
-        if len(text) >= 2 and text[0] == text[-1] and text[0] in ("'", '"'):
-            text = text[1:-1]
-        # Expand env vars
-        for var, val in _env.items():
-            text = text.replace(var, val)
-        return True, text + "\n"
+        return True, _handle_echo(stripped, state)
 
     # echo with redirection (very simple) — kept as fallback for non-echo-prefixed calls
     handled_redir, out_redir = _handle_echo_redirection(stripped, state)
     if handled_redir:
         return True, out_redir
 
-    if stripped == "pwd":
-        return True, _handle_pwd(state)
+    # Extract command name for O(1) dispatch
+    parts = stripped.split(None, 1)  # Split on first whitespace
+    cmd_name = parts[0]
+    args = parts[1] if len(parts) > 1 else ""
 
-    if _cmd_matches(stripped, "cd"):
-        args = stripped[2:].strip()
-        return True, _handle_cd(args, state)
+    # Check O(1) dispatch dict for basic builtin commands
+    if cmd_name in _BUILTIN_DISPATCH:
+        handler, _ = _BUILTIN_DISPATCH[cmd_name]
+        return True, handler(args, state)
 
-    if _cmd_matches(stripped, "mkdir"):
-        args = stripped[5:].strip()
-        return True, _handle_mkdir(args, state)
+    # System state commands need sys_state
+    if cmd_name in _SYSSTATE_DISPATCH:
+        sys_state_raw = state.get("system_state")
+        if sys_state_raw is None:
+            sys_state = init_system_state()
+            state["system_state"] = sys_state
+        else:
+            sys_state = cast(SystemState, sys_state_raw)
+        handler, _ = _SYSSTATE_DISPATCH[cmd_name]
+        return True, handler(args, sys_state)
 
-    if stripped.startswith("touch "):
-        args = stripped[6:].strip()
-        return True, _handle_touch(args, state)
+    # Exact match commands (no args)
+    if cmd_name in _EXACT_MATCH_COMMANDS:
+        sys_state_raw = state.get("system_state")
+        if sys_state_raw is None:
+            sys_state = init_system_state()
+            state["system_state"] = sys_state
+        else:
+            sys_state = cast(SystemState, sys_state_raw)
 
-    if _cmd_matches(stripped, "ls"):
-        args = stripped[2:].strip()
-        return True, _handle_ls(args, state)
-
-    if _cmd_matches(stripped, "cat"):
-        args = stripped[3:].strip()
-        return True, _handle_cat(args, state)
-
-    if _cmd_matches(stripped, "rm"):
-        args = stripped[2:].strip()
-        return True, _handle_rm(args, state)
-
-    # Filesystem metadata commands
-    if stripped.startswith("stat "):
-        args = stripped[5:].strip()
-        return True, handle_stat_command(args, state)
-
-    if stripped.startswith("chmod "):
-        args = stripped[6:].strip()
-        return True, handle_chmod_command(args, state)
-
-    if stripped.startswith("chown "):
-        args = stripped[6:].strip()
-        return True, handle_chown_command(args, state)
-
-    if _cmd_matches(stripped, "find"):
-        args = stripped[4:].strip()
-        return True, handle_find_command(args, state)
-
-    # System state commands
-    sys_state_raw = state.get("system_state")
-    if sys_state_raw is None:
-        sys_state = init_system_state()
-        state["system_state"] = sys_state
-    else:
-        sys_state = cast(SystemState, sys_state_raw)
-
-    if _cmd_matches(stripped, "ps"):
-        args = stripped[2:].strip()
-        return True, handle_ps_command(args, sys_state)
-
-    if _cmd_matches(stripped, "netstat"):
-        args = stripped[7:].strip()
-        return True, handle_netstat_command(args, sys_state)
-
-    if _cmd_matches(stripped, "ss"):
-        args = stripped[2:].strip()
-        return True, handle_ss_command(args, sys_state)
-
-    if _cmd_matches(stripped, "free"):
-        args = stripped[4:].strip()
-        return True, handle_free_command(args, sys_state)
-
-    if stripped == "uptime":
-        return True, handle_uptime_command(sys_state)
-
-    if stripped == "w":
-        return True, handle_w_command(sys_state)
-
-    if stripped == "who":
-        return True, handle_who_command(sys_state)
-
-    if _cmd_matches(stripped, "id"):
-        args = stripped[2:].strip()
-        return True, handle_id_command(args, state)
-
-    if stripped == "hostname":
-        return True, handle_hostname_command()
-
-    if _cmd_matches(stripped, "uname"):
-        args = stripped[5:].strip()
-        return True, handle_uname_command(args)
-
-    if stripped == "whoami":
-        return True, handle_whoami_command(state)
+        if cmd_name == "uptime":
+            return True, handle_uptime_command(sys_state)
+        if cmd_name == "w":
+            return True, handle_w_command(sys_state)
+        if cmd_name == "who":
+            return True, handle_who_command(sys_state)
+        if cmd_name == "hostname":
+            return True, handle_hostname_command()
+        if cmd_name == "whoami":
+            return True, handle_whoami_command(state)
 
     # Download command handlers (wget, curl, scp, tftp, ftp, rsync)
     if is_download_command(stripped):
         return True, _handle_download_command(stripped, state)
 
     # history — return in-session command history (never send to LLM)
-    if stripped == "history" or stripped.startswith("history "):
-        from .tty_handler import TTYState as _TTYState  # avoid circular at module level
-
-        tty_st = state.get("tty_state")
-        if tty_st is not None and hasattr(tty_st, "command_history"):
-            hist = tty_st.command_history
-        else:
-            hist = []
-        if not hist:
-            return True, ""
-        lines = [f"  {i + 1}  {cmd}" for i, cmd in enumerate(hist)]
-        return True, "\n".join(lines) + "\n"
+    if cmd_name == "history":
+        return True, _handle_history(stripped, state)
 
     return False, ""
 
@@ -2511,8 +2542,8 @@ def _has_suspicious_encoding(command: str) -> bool:
             decoded = hex_bytes.decode("utf-8", errors="ignore")
             if _contains_injection(decoded):
                 return True
-        except Exception:
-            pass
+        except (ValueError, UnicodeDecodeError) as e:
+            LOGGER.error("Failed to decode hex escape sequence: %s", e)
 
     # P3-05: Check for URL-encoded strings (%69%67%6e%6f%72%65 = "ignore")
     # Only check if there are at least 4 consecutive percent-encoded bytes
@@ -2523,8 +2554,8 @@ def _has_suspicious_encoding(command: str) -> bool:
             decoded = _unquote(match)
             if _contains_injection(decoded):
                 return True
-        except Exception:
-            pass
+        except (ValueError, UnicodeDecodeError) as e:
+            LOGGER.error("Failed to decode URL escape sequence: %s", e)
 
     # Check for excessive unicode characters (potential homoglyph attack)
     non_ascii_count = sum(1 for c in command if ord(c) > 127)
@@ -2747,6 +2778,10 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
     cmd = command.strip()
     if not cmd:
         return ""  # just re-prompt
+
+    # SECURITY: Enforce maximum command length (Phase 2.3)
+    if len(cmd) > MAX_COMMAND_LENGTH:
+        return f"bash: command too long (max {MAX_COMMAND_LENGTH} chars)\n"
 
     # Get metrics collector
     metrics = get_metrics_collector()

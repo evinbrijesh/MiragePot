@@ -18,12 +18,15 @@ Each detected download attempt is logged with:
 
 from __future__ import annotations
 
+import logging
 import re
 import shlex
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass
@@ -34,9 +37,9 @@ class DownloadAttempt:
     source: str  # URL or remote path
     destination: Optional[str] = None  # Local destination path
     timestamp: str = field(
-        default_factory=lambda: datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z")
+        default_factory=lambda: (
+            datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        )
     )
     raw_command: str = ""  # The full command as entered
     flags: List[str] = field(default_factory=list)  # Additional flags used
@@ -715,7 +718,8 @@ def get_url_domain(url: str) -> Optional[str]:
     try:
         parsed = urlparse(url)
         return parsed.netloc or parsed.path.split("/")[0]
-    except Exception:
+    except (ValueError, AttributeError, IndexError) as e:
+        LOGGER.error("Failed to parse URL domain from %s: %s", url, e)
         return None
 
 

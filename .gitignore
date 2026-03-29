@@ -93,6 +93,10 @@ data/profiles/*
 data/host.key
 data/*.key
 
+# Static assets moved to miragepot/ - old locations ignored
+data/cache.json
+data/system_prompt.txt
+
 # Session logs (generated at runtime)
 data/logs/session_*.json
 

@@ -58,7 +58,8 @@ def _get_env_bool(key: str, default: bool) -> bool:
 
 # Base paths
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-DATA_DIR = PROJECT_ROOT / "data"
+MIRAGEPOT_DIR = Path(__file__).resolve().parent  # Package directory for static assets
+DATA_DIR = PROJECT_ROOT / "data"  # Runtime data (logs, profiles, host.key)
 LOGS_DIR = DATA_DIR / "logs"
 
 
@@ -193,9 +194,9 @@ class Config:
     project_root: Path = PROJECT_ROOT
     data_dir: Path = DATA_DIR
     logs_dir: Path = LOGS_DIR
-    cache_path: Path = field(default_factory=lambda: DATA_DIR / "cache.json")
+    cache_path: Path = field(default_factory=lambda: MIRAGEPOT_DIR / "cache.json")
     system_prompt_path: Path = field(
-        default_factory=lambda: DATA_DIR / "system_prompt.txt"
+        default_factory=lambda: MIRAGEPOT_DIR / "system_prompt.txt"
     )
 
 

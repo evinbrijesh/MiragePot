@@ -374,3 +374,116 @@ class TestHandleCommand:
         result = handle_command("whoami", session_state)
         # Should get some response (either cached or from LLM/fallback)
         assert len(result) > 0
+
+
+class TestSecurityHardening:
+    """Tests for Phase 2 security hardening features."""
+
+    def test_max_command_length_enforcement(self, session_state):
+        """Commands exceeding MAX_COMMAND_LENGTH should be rejected."""
+        from miragepot.command_handler import MAX_COMMAND_LENGTH
+
+        # Create a command that's too long
+        long_command = "echo " + "A" * (MAX_COMMAND_LENGTH + 100)
+        result = handle_command(long_command, session_state)
+
+        # Should get an error message
+        assert "too long" in result.lower() or "rejected" in result.lower()
+
+    def test_exit_sentinel_is_unpredictable(self):
+        """EXIT_SENTINEL should contain random component."""
+        # Should start with __exit_ and contain hex chars
+        assert EXIT_SENTINEL.startswith("__exit_")
+        assert len(EXIT_SENTINEL) > 15  # "__exit_" + 8 hex bytes = 23 chars
+
+    def test_path_traversal_protection(self, session_state):
+        """Path normalization should prevent traversal attacks."""
+        # Test various traversal attempts
+        # _normalize_path takes (cwd, target) order
+        assert _normalize_path("/root", "/../../../etc/passwd") == "/etc/passwd"
+        assert _normalize_path("/root", "../../../etc") == "/etc"
+        assert _normalize_path("/var/log", "./../../etc/shadow") == "/etc/shadow"
+
+
+class TestCommandDispatchEfficiency:
+    """Tests for Phase 3 command dispatch optimization."""
+
+    def test_dispatch_dict_used_for_builtins(self, session_state):
+        """Verify O(1) dispatch dict is used for builtin commands."""
+        from miragepot.command_handler import _get_builtin_dispatch
+
+        # Get the dispatch dictionary
+        dispatch = _get_builtin_dispatch()
+
+        # Verify it contains expected commands
+        assert "cd" in dispatch
+        assert "pwd" in dispatch
+        assert "ls" in dispatch
+        assert "cat" in dispatch
+        assert "mkdir" in dispatch
+
+        # Each entry should be (handler_func, args_offset)
+        handler, offset = dispatch["pwd"]
+        assert callable(handler)
+        assert isinstance(offset, int)
+
+    def test_exact_match_commands_dispatch(self, session_state):
+        """Verify exact match commands use O(1) lookup."""
+        from miragepot.command_handler import _EXACT_MATCH_COMMANDS
+
+        # Verify exact match dict contains expected commands
+        assert "uptime" in _EXACT_MATCH_COMMANDS
+        assert "whoami" in _EXACT_MATCH_COMMANDS
+        assert "hostname" in _EXACT_MATCH_COMMANDS
+
+        # Each should map to a command name string
+        assert isinstance(_EXACT_MATCH_COMMANDS["uptime"], str)
+        assert _EXACT_MATCH_COMMANDS["uptime"] == "uptime"
+
+    def test_builtin_commands_work_via_dispatch(self, session_state):
+        """Builtin commands should work through dispatch mechanism."""
+        # Test a few key commands
+        result = handle_command("pwd", session_state)
+        assert "/root" in result
+
+        result = handle_command("whoami", session_state)
+        assert len(result) > 0
+
+        result = handle_command("hostname", session_state)
+        assert len(result) > 0
+
+
+class TestDataLocationSetup:
+    """Tests for Phase 4 data location changes."""
+
+    def test_miragepot_dir_points_to_package(self):
+        """MIRAGEPOT_DIR should point to the miragepot package directory."""
+        from miragepot.command_handler import MIRAGEPOT_DIR
+
+        # Should be a Path object
+        assert hasattr(MIRAGEPOT_DIR, "exists")
+
+        # Should point to miragepot/ directory
+        assert MIRAGEPOT_DIR.name == "miragepot"
+        assert MIRAGEPOT_DIR.exists()
+
+    def test_cache_path_in_package_dir(self):
+        """CACHE_PATH should be in miragepot/ directory."""
+        from miragepot.command_handler import CACHE_PATH, MIRAGEPOT_DIR
+
+        # Should be under MIRAGEPOT_DIR
+        assert CACHE_PATH.parent == MIRAGEPOT_DIR
+        assert CACHE_PATH.name == "cache.json"
+        assert CACHE_PATH.exists()
+
+    def test_cache_file_is_readable(self):
+        """cache.json should be readable and valid JSON."""
+        from miragepot.command_handler import CACHE_PATH
+        import json
+
+        # Should be able to read and parse
+        with open(CACHE_PATH, "r") as f:
+            cache_data = json.load(f)
+
+        # Should be a dict
+        assert isinstance(cache_data, dict)

@@ -13,6 +13,8 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import logging
+import socket
 import sys
 import time
 from typing import List, Tuple
@@ -22,6 +24,11 @@ try:
 except ImportError:
     print("Error: paramiko is required. Install it with: pip install paramiko")
     sys.exit(1)
+
+# Enable paramiko debug logging to diagnose connection issues
+# Uncomment for debugging:
+# logging.basicConfig(level=logging.DEBUG)
+# paramiko.util.log_to_file("/tmp/paramiko_demo.log")
 
 
 # Demo command sequence: (command, delay_after_seconds)
@@ -76,26 +83,46 @@ def run_demo_session(
     print_banner()
     print(f"Connecting to {host}:{port} as {username}...")
 
-    # Create SSH client
-    client = paramiko.SSHClient()
-    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
+    # Use low-level Transport API to handle honeypot's intentional auth failures
+    # The honeypot fails first 1-3 attempts to avoid detection signatures
+    transport = None
     try:
-        # Connect to the honeypot
-        client.connect(
-            hostname=host,
-            port=port,
-            username=username,
-            password=password,
-            timeout=10,
-            allow_agent=False,
-            look_for_keys=False,
-        )
-        print("\033[1;32m✓ Connected successfully!\033[0m\n")
-        time.sleep(1)
+        # Create transport
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.connect((host, port))
+        transport = paramiko.Transport(sock)
+        transport.start_client()
 
-        # Get interactive shell
-        channel = client.invoke_shell(term="xterm", width=80, height=24)
+        # Try authentication up to 5 times
+        max_auth_attempts = 5
+        authenticated = False
+
+        for attempt in range(1, max_auth_attempts + 1):
+            try:
+                if attempt > 1:
+                    print(
+                        f"Retrying authentication (attempt {attempt}/{max_auth_attempts})..."
+                    )
+                    time.sleep(0.3)  # Brief delay
+
+                transport.auth_password(username, password)
+                authenticated = True
+                print("\033[1;32m✓ Connected successfully!\033[0m\n")
+                time.sleep(1)
+                break
+            except paramiko.AuthenticationException:
+                if attempt < max_auth_attempts:
+                    continue
+                else:
+                    raise
+
+        if not authenticated:
+            raise paramiko.AuthenticationException("Failed to authenticate")
+
+        # Get interactive shell (open channel)
+        channel = transport.open_session()
+        channel.get_pty(term="xterm", width=80, height=24)
+        channel.invoke_shell()
         time.sleep(0.5)
 
         # Read and discard the initial banner/prompt
@@ -157,7 +184,8 @@ def run_demo_session(
         print(f"\033[1;31m✗ Unexpected error: {e}\033[0m")
         sys.exit(1)
     finally:
-        client.close()
+        if transport:
+            transport.close()
 
 
 def main() -> None:
@@ -199,8 +227,8 @@ Examples:
     )
     parser.add_argument(
         "--password",
-        default="password",
-        help="SSH password (default: password)",
+        default="root",
+        help="SSH password (default: root)",
     )
     parser.add_argument(
         "--delay",

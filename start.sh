@@ -2,6 +2,43 @@
 # MiragePot — Start the full Docker stack
 set -euo pipefail
 
+# ── Parse arguments ─────────────────────────────────────────────────
+SKIP_BUILD=false
+QUICK_START=false
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --no-build|-n)
+            SKIP_BUILD=true
+            shift
+            ;;
+        --quick|-q)
+            QUICK_START=true
+            SKIP_BUILD=true
+            shift
+            ;;
+        --help|-h)
+            echo "Usage: ./start.sh [OPTIONS]"
+            echo ""
+            echo "Options:"
+            echo "  --no-build, -n    Skip Docker image rebuild (faster restart)"
+            echo "  --quick, -q       Quick start: skip build + minimal health wait"
+            echo "  --help, -h        Show this help message"
+            echo ""
+            echo "Examples:"
+            echo "  ./start.sh           # Full build and start (first time)"
+            echo "  ./start.sh -n        # Restart without rebuilding"
+            echo "  ./start.sh -q        # Quick restart (fastest)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
 # ── Ensure we're in the project root ────────────────────────────────
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
@@ -106,61 +143,83 @@ echo ""
 
 # ── Build and start containers ──────────────────────────────────────
 echo "[1/4] Building and starting containers..."
-docker compose -f docker/docker-compose.yml --env-file .env.docker up -d --build
+# Use DOCKER_BUILDKIT for faster builds with better caching
+if [[ "$SKIP_BUILD" == "true" ]]; then
+    echo "   (Skipping rebuild - using cached image)"
+    docker compose -f docker/docker-compose.yml --env-file .env.docker up -d
+else
+    DOCKER_BUILDKIT=1 docker compose -f docker/docker-compose.yml --env-file .env.docker up -d --build
+fi
 
 # ── Show live model download progress (first run only) ──────────────
 echo ""
 echo "[2/4] Checking AI model status..."
-# Follow ollama logs until the model is ready or the pull finishes.
-# Stream output live so the user sees download progress bars.
-# Timeout after 10 minutes (model pull can take a while on slow connections).
-(
-    timeout 600 docker logs -f miragepot-ollama 2>&1 &
-    LOG_PID=$!
-    # Wait until the container is healthy or the pull completes
+
+if [[ "$QUICK_START" == "true" ]]; then
+    echo "   (Quick start mode - minimal health wait)"
+    sleep 2
+    echo "   ✅ Skipped detailed health check"
+else
+    # Wait for ollama server to respond (not full model load)
+    MAX_WAIT=30
+    ELAPSED=0
     while true; do
-        STATUS=$(docker inspect --format='{{.State.Health.Status}}' miragepot-ollama 2>/dev/null || echo "starting")
-        if [[ "$STATUS" == "healthy" ]]; then
-            kill $LOG_PID 2>/dev/null || true
+        # Check if Ollama is responding (server started)
+        if docker exec miragepot-ollama curl -sf http://localhost:11434/ >/dev/null 2>&1; then
+            echo "   ✅ Ollama server responding"
             break
         fi
-        sleep 5
+        if (( ELAPSED >= MAX_WAIT )); then
+            echo "   ⚠️  Ollama still starting (honeypot will retry)"
+            break
+        fi
+        sleep 2
+        ELAPSED=$((ELAPSED + 2))
+        printf "."
     done
-) 2>/dev/null || true
+fi
 echo ""
-echo "   AI model ready."
+echo "   AI model loading in background..."
 
 # ── Wait for all containers to be healthy ───────────────────────────
 echo ""
 echo "[3/4] Waiting for all services to become healthy..."
-CONTAINERS=("miragepot-ollama" "miragepot-honeypot" "miragepot-prometheus" "miragepot-alertmanager" "miragepot-grafana")
-MAX_WAIT=300
-ELAPSED=0
 
-all_healthy() {
-    for c in "${CONTAINERS[@]}"; do
-        STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "missing")
-        if [[ "$STATUS" != "healthy" ]]; then
-            return 1
+if [[ "$QUICK_START" == "true" ]]; then
+    echo "   (Quick start mode - skipping full health check)"
+    sleep 2
+    echo "   ✅ Services starting..."
+else
+    # Don't wait for Ollama to be fully healthy - just check honeypot and monitoring
+    CONTAINERS=("miragepot-honeypot" "miragepot-prometheus" "miragepot-alertmanager" "miragepot-grafana")
+    MAX_WAIT=60
+    ELAPSED=0
+
+    all_healthy() {
+        for c in "${CONTAINERS[@]}"; do
+            STATUS=$(docker inspect --format='{{.State.Health.Status}}' "$c" 2>/dev/null || echo "missing")
+            if [[ "$STATUS" != "healthy" ]]; then
+                return 1
+            fi
+        done
+        return 0
+    }
+
+    while ! all_healthy; do
+        if (( ELAPSED >= MAX_WAIT )); then
+            echo ""
+            echo "WARNING: Timed out waiting for all containers to become healthy."
+            echo "         Run 'docker ps' to check status."
+            break
         fi
+        sleep 2
+        ELAPSED=$((ELAPSED + 2))
+        # Print a dot every 2 seconds to show progress
+        printf "."
     done
-    return 0
-}
-
-while ! all_healthy; do
-    if (( ELAPSED >= MAX_WAIT )); then
-        echo ""
-        echo "WARNING: Timed out waiting for all containers to become healthy."
-        echo "         Run 'docker ps' to check status."
-        break
-    fi
-    sleep 5
-    ELAPSED=$((ELAPSED + 5))
-    # Print a dot every 5 seconds to show progress
-    printf "."
-done
-echo ""
-echo "   All services healthy."
+    echo ""
+    echo "   All services healthy."
+fi
 
 # ── Clear stale SSH host key ────────────────────────────────────────
 echo ""

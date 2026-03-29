@@ -285,3 +285,62 @@ class TestSessionIsolation:
         assert session_1["tier_usage"] is not session_2["tier_usage"]
         assert session_2["tier_usage"] is not session_3["tier_usage"]
         assert session_1["tier_usage"] is not session_3["tier_usage"]
+
+    def test_concurrent_sessions_with_threading(self):
+        """Test true concurrent execution with threading.
+
+        Simulates 2 sessions running overlapping commands in parallel threads
+        to verify thread-safety and proper isolation under concurrent load.
+        """
+        import threading
+        import time
+
+        session_a = init_session_state()
+        session_b = init_session_state()
+
+        results_a = []
+        results_b = []
+
+        def session_a_commands():
+            """Session A command sequence."""
+            results_a.append(handle_command("cd /etc", session_a))
+            time.sleep(0.01)  # Small delay to interleave execution
+            results_a.append(handle_command("pwd", session_a))
+            results_a.append(handle_command("mkdir /etc/test_a", session_a))
+            results_a.append(handle_command("ls", session_a))
+
+        def session_b_commands():
+            """Session B command sequence."""
+            results_b.append(handle_command("cd /var", session_b))
+            time.sleep(0.01)  # Small delay to interleave execution
+            results_b.append(handle_command("pwd", session_b))
+            results_b.append(handle_command("mkdir /var/test_b", session_b))
+            results_b.append(handle_command("ls", session_b))
+
+        # Run both sessions in parallel threads
+        thread_a = threading.Thread(target=session_a_commands)
+        thread_b = threading.Thread(target=session_b_commands)
+
+        thread_a.start()
+        thread_b.start()
+
+        thread_a.join()
+        thread_b.join()
+
+        # Verify isolation after concurrent execution
+        assert session_a["cwd"] == "/etc", "Session A cwd should be /etc"
+        assert session_b["cwd"] == "/var", "Session B cwd should be /var"
+
+        # Verify filesystem isolation
+        assert "/etc/test_a" in session_a["directories"]
+        assert "/etc/test_a" not in session_b["directories"]
+        assert "/var/test_b" in session_b["directories"]
+        assert "/var/test_b" not in session_a["directories"]
+
+        # Verify all commands completed successfully
+        assert len(results_a) == 4, "Session A should have 4 command results"
+        assert len(results_b) == 4, "Session B should have 4 command results"
+
+        # Verify pwd outputs reflect correct isolation
+        assert "/etc" in str(results_a[1]), "Session A pwd should show /etc"
+        assert "/var" in str(results_b[1]), "Session B pwd should show /var"

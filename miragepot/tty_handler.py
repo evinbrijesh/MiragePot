@@ -68,8 +68,8 @@ class TTYState:
     hostname: str = field(default_factory=lambda: get_config().honeypot.hostname)
     username: str = "root"
 
-    # Maximum history size
-    max_history: int = 100
+    # SECURITY: Maximum history size to prevent memory exhaustion (Phase 2.5)
+    max_history: int = 500
 
 
 def generate_prompt(tty_state: TTYState, cwd: str) -> str:
