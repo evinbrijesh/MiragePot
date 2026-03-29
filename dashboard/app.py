@@ -675,7 +675,7 @@ def render_filters_panel(sessions: List[Dict[str, Any]]) -> Tuple[List[Dict], Di
 
 
 def render_ttp_timeline(session: Dict[str, Any]) -> None:
-    """Render TTP/Attack stage visualization for a session."""
+    """Render TTP/Attack stage visualization for a session with timeline."""
     st.markdown("### Attack Stage Analysis")
 
     ttp_summary = session.get("ttp_summary", {})
@@ -702,18 +702,46 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
                     unsafe_allow_html=True,
                 )
 
-    # TTP Indicators Timeline
+    # TTP Indicators Timeline with relative timestamps
     indicators = ttp_summary.get("key_indicators", [])
-    if indicators:
-        st.markdown("#### TTP Indicators Detected")
+    commands = session.get("commands", [])
 
-        for ind in indicators[:10]:
+    # Calculate session start time from first command
+    session_start = None
+    if commands and len(commands) > 0:
+        first_ts = commands[0].get("timestamp", "")
+        if first_ts:
+            try:
+                from datetime import datetime
+
+                session_start = datetime.fromisoformat(first_ts.replace("Z", "+00:00"))
+            except Exception:
+                pass
+
+    if indicators:
+        st.markdown("#### TTP Attack Timeline")
+        st.markdown("*Showing MITRE ATT&CK techniques detected during the session*")
+
+        for ind in indicators[:15]:  # Show top 15 indicators
             technique_id = ind.get("technique_id", "")
             technique_name = ind.get("technique_name", "")
             stage = ind.get("stage", "unknown")
             confidence = ind.get("confidence", "low")
             command = ind.get("command", "")
             description = ind.get("description", "")
+            timestamp = ind.get("timestamp", "")
+
+            # Calculate relative time (T+Xs format)
+            relative_time = "T+?s"
+            if session_start and timestamp:
+                try:
+                    from datetime import datetime
+
+                    ind_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+                    elapsed = (ind_time - session_start).total_seconds()
+                    relative_time = f"T+{int(elapsed)}s"
+                except Exception:
+                    pass
 
             # Color by confidence
             conf_colors = {"high": "#e74c3c", "medium": "#f39c12", "low": "#3498db"}
@@ -732,9 +760,10 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
                 f"""
                 <div style="background:#1a1a2e;padding:10px;margin:5px 0;border-radius:4px;
                 border-left:4px solid {conf_color};">
-                    <strong style="color:#00d9ff;">{_h(technique_id)}</strong> - {_h(technique_name)}
-                    <br><span style="color:#888;font-size:12px;">Stage: {_h(stage)} | Confidence: {_h(confidence)}</span>
-                    <br><code style="color:#00ff00;font-size:11px;">{_h(command[:80])}...</code>
+                    <span style="color:#888;font-size:11px;">{relative_time}</span>
+                    <strong style="color:#00d9ff;"> [{_h(technique_id)}]</strong> {_h(stage)} — {_h(technique_name)}
+                    <br><span style="color:#888;font-size:12px;">Confidence: {_h(confidence)}</span>
+                    <br><code style="color:#00ff00;font-size:11px;">{_h(command[:100])}{"..." if len(command) > 100 else ""}</code>
                     <br><span style="color:#aaa;font-size:11px;">{_h(description)}</span>
                 </div>
                 """,
@@ -1362,6 +1391,204 @@ def render_session_inspector(session: Dict[str, Any], all_sessions: List[Dict]) 
         st.success("Tags saved!")
 
 
+def render_session_profiles() -> None:
+    """Render the Session Profiles page showing attacker skill level analysis.
+
+    Displays profile cards for each session with:
+    - Skill level estimation (Script Kiddie, Intermediate, Advanced)
+    - Command tier usage breakdown (filesystem, cache, LLM)
+    - TTP summary and risk level
+    - Honeytoken interaction
+    """
+    st.markdown("## Session Profiles")
+    st.markdown("""
+    Attacker profiles are automatically generated based on session behavior analysis.
+    Each profile includes skill level estimation and command tier usage statistics.
+    """)
+
+    # Load profiles from data/profiles directory
+    profiles_dir = Path("../data/profiles")
+
+    # Handle both dashboard running from dashboard/ and root directory
+    if not profiles_dir.exists():
+        profiles_dir = Path("data/profiles")
+
+    if not profiles_dir.exists():
+        st.error("Profiles directory not found. Expected at data/profiles/")
+        return
+
+    profile_files = sorted(
+        profiles_dir.glob("*.json"),
+        key=lambda p: p.stat().st_mtime,
+        reverse=True,  # Most recent first
+    )
+
+    if not profile_files:
+        st.info(
+            "No attacker profiles generated yet. Profiles are created after sessions complete."
+        )
+        st.markdown("""
+        ### How Profiles Work
+        - **Filesystem Tier**: Commands handled by built-in filesystem (cd, ls, cat, etc.)
+        - **Cache Tier**: Commands with pre-cached responses (common utilities)
+        - **LLM Tier**: Novel commands requiring AI generation
+        
+        **Skill Levels:**
+        - **Script Kiddie**: Random commands, high LLM usage, low sophistication
+        - **Intermediate**: Mixed tactics, some reconnaissance, knows where to look
+        - **Advanced**: Targeted actions, multi-stage attacks, credential exfiltration
+        """)
+        return
+
+    st.markdown(f"### {len(profile_files)} Attacker Profiles")
+
+    # Filter options
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        skill_filter = st.selectbox(
+            "Filter by Skill Level",
+            ["All", "Script Kiddie", "Intermediate", "Advanced"],
+        )
+    with col2:
+        sort_by = st.selectbox(
+            "Sort by", ["Most Recent", "Skill Level", "Commands", "Duration"]
+        )
+    with col3:
+        show_count = st.number_input(
+            "Show profiles", min_value=10, max_value=100, value=20, step=10
+        )
+
+    # Load and filter profiles
+    profiles = []
+    for profile_file in profile_files[:show_count]:  # Limit to avoid loading too many
+        try:
+            profile_data = json.loads(profile_file.read_text(encoding="utf-8"))
+            profiles.append(profile_data)
+        except Exception as exc:
+            st.error(f"Error loading profile {profile_file.name}: {exc}")
+            continue
+
+    # Apply filters
+    if skill_filter != "All":
+        profiles = [p for p in profiles if p.get("skill_level") == skill_filter]
+
+    # Sort profiles
+    if sort_by == "Skill Level":
+        skill_order = {"Advanced": 0, "Intermediate": 1, "Script Kiddie": 2}
+        profiles = sorted(
+            profiles,
+            key=lambda p: skill_order.get(p.get("skill_level", "Script Kiddie"), 3),
+        )
+    elif sort_by == "Commands":
+        profiles = sorted(
+            profiles, key=lambda p: p.get("total_commands", 0), reverse=True
+        )
+    elif sort_by == "Duration":
+        profiles = sorted(
+            profiles, key=lambda p: p.get("duration_seconds", 0), reverse=True
+        )
+    # "Most Recent" is already sorted by file modification time
+
+    if not profiles:
+        st.warning(f"No profiles found matching filter: {skill_filter}")
+        return
+
+    st.markdown("---")
+
+    # Display profile cards
+    for profile in profiles:
+        skill_level = profile.get("skill_level", "Unknown")
+        session_id = profile.get("session_id", "unknown")
+        attacker_ip = profile.get("attacker_ip", "unknown")
+        total_commands = profile.get("total_commands", 0)
+        duration = profile.get("duration_seconds", 0)
+
+        # Color-code by skill level
+        if skill_level == "Advanced":
+            skill_color = "🔴"
+            card_color = "#ff4444"
+        elif skill_level == "Intermediate":
+            skill_color = "🟡"
+            card_color = "#ffaa00"
+        else:  # Script Kiddie
+            skill_color = "🟢"
+            card_color = "#44ff44"
+
+        # Create expandable card
+        with st.expander(
+            f"{skill_color} **{skill_level}** | IP: {attacker_ip} | Commands: {total_commands} | "
+            f"Duration: {format_duration(duration)}"
+        ):
+            # Profile details
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                st.markdown("**Session Info**")
+                st.text(f"Session ID: {session_id[:30]}...")
+                st.text(f"Login Time: {profile.get('login_time', '')[:19]}")
+                st.text(f"Duration: {format_duration(duration)}")
+                st.text(f"Total Commands: {total_commands}")
+
+            with col2:
+                st.markdown("**Command Tier Usage**")
+                tier_usage = profile.get("tier_usage", {})
+                tier_percentages = profile.get("tier_percentages", {})
+
+                st.text(
+                    f"Filesystem: {tier_usage.get('filesystem', 0)} ({tier_percentages.get('filesystem', 0)}%)"
+                )
+                st.text(
+                    f"Cache: {tier_usage.get('cache', 0)} ({tier_percentages.get('cache', 0)}%)"
+                )
+                st.text(
+                    f"LLM: {tier_usage.get('llm', 0)} ({tier_percentages.get('llm', 0)}%)"
+                )
+
+                # Visual tier breakdown
+                st.progress(
+                    tier_percentages.get("filesystem", 0) / 100, text="Filesystem"
+                )
+                st.progress(tier_percentages.get("cache", 0) / 100, text="Cache")
+                st.progress(tier_percentages.get("llm", 0) / 100, text="LLM")
+
+            with col3:
+                st.markdown("**Threat Summary**")
+                ttp_summary = profile.get("ttp_summary", {})
+                honeytoken_summary = profile.get("honeytokens_summary", {})
+
+                risk_level = ttp_summary.get("risk_level", "low").upper()
+                st.text(f"Risk Level: {risk_level}")
+                st.text(f"Attack Stage: {ttp_summary.get('current_stage', 'unknown')}")
+                st.text(f"Stages Seen: {len(ttp_summary.get('stages_seen', []))}")
+                st.text(f"Downloads: {profile.get('download_attempts_count', 0)}")
+
+                tokens_accessed = honeytoken_summary.get("unique_tokens_accessed", 0)
+                if tokens_accessed > 0:
+                    st.warning(f"⚠️ Honeytokens Accessed: {tokens_accessed}")
+                    st.text(
+                        f"Exfil Attempts: {honeytoken_summary.get('exfiltration_attempts', 0)}"
+                    )
+
+            # Show tier usage chart
+            st.markdown("**Tier Distribution**")
+            tier_data = {
+                "Tier": ["Filesystem", "Cache", "LLM"],
+                "Commands": [
+                    tier_usage.get("filesystem", 0),
+                    tier_usage.get("cache", 0),
+                    tier_usage.get("llm", 0),
+                ],
+                "Percentage": [
+                    tier_percentages.get("filesystem", 0),
+                    tier_percentages.get("cache", 0),
+                    tier_percentages.get("llm", 0),
+                ],
+            }
+            st.bar_chart(
+                data=tier_data, x="Tier", y="Commands", use_container_width=True
+            )
+
+
 # ============================================================================
 # Main Application
 # ============================================================================
@@ -1446,18 +1673,51 @@ def main() -> None:
 
     # Sidebar navigation
     st.sidebar.title("Navigation")
+
+    # Initialize page in session state if needed
+    if "page" not in st.session_state:
+        st.session_state.page = "Overview"
+
+    # Get page from session state or radio button
     page = st.sidebar.radio(
         "Select Page",
         [
             "Overview",
             "Live Sessions",
             "Session Browser",
+            "Session Profiles",
             "Credentials Analytics",
             "SSH Fingerprints",
             "Geographic Analysis",
             "Analytics Charts",
         ],
+        index=[
+            "Overview",
+            "Live Sessions",
+            "Session Browser",
+            "Session Profiles",
+            "Credentials Analytics",
+            "SSH Fingerprints",
+            "Geographic Analysis",
+            "Analytics Charts",
+        ].index(st.session_state.page)
+        if hasattr(st.session_state, "page")
+        and st.session_state.page
+        in [
+            "Overview",
+            "Live Sessions",
+            "Session Browser",
+            "Session Profiles",
+            "Credentials Analytics",
+            "SSH Fingerprints",
+            "Geographic Analysis",
+            "Analytics Charts",
+        ]
+        else 0,
     )
+
+    # Update session state
+    st.session_state.page = page
 
     # Auto-refresh controls
     st.sidebar.markdown("---")
@@ -1469,6 +1729,18 @@ def main() -> None:
 
     if st.sidebar.button("Refresh Now"):
         st.rerun()
+
+    # Quick Links section
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### 🔗 Quick Links")
+    st.sidebar.markdown(
+        """
+        - [📊 Grafana Dashboards](http://localhost:3000) - Metrics visualization
+        - [📈 Prometheus UI](http://localhost:9091) - Raw metrics explorer
+        - [🔔 Alertmanager](http://localhost:9093) - Alert management
+        """,
+        unsafe_allow_html=True,
+    )
 
     if auto_refresh:
         # Use st.empty() + a short script to trigger rerun after the interval
@@ -1519,6 +1791,49 @@ def main() -> None:
 
         st.divider()
 
+        # Honeytoken Alert Banner
+        # Check if any session has accessed honeytokens
+        honeytoken_sessions = []
+        for sess in sessions:
+            honeytokens = sess.get("honeytokens_summary", {})
+            if honeytokens and honeytokens.get("unique_tokens_accessed", 0) > 0:
+                honeytoken_sessions.append(
+                    {
+                        "session_id": sess.get("session_id", "unknown"),
+                        "ip": sess.get("attacker_ip", "unknown"),
+                        "login_time": sess.get("login_time", ""),
+                        "tokens_accessed": honeytokens.get("unique_tokens_accessed", 0),
+                        "total_accesses": honeytokens.get("total_accesses", 0),
+                        "exfil_attempts": honeytokens.get("exfiltration_attempts", 0),
+                    }
+                )
+
+        if honeytoken_sessions:
+            st.error("⚠️ **HONEYTOKEN ALERT: Credentials have been accessed!**")
+            st.markdown(f"""
+            **{len(honeytoken_sessions)} session(s)** accessed honeytokens (fake credentials).
+            This indicates active credential theft attempts. Review these sessions immediately:
+            """)
+
+            # Show table of sessions with honeytoken access
+            alert_rows = []
+            for hs in honeytoken_sessions[:10]:  # Show top 10
+                alert_rows.append(
+                    {
+                        "Session ID": hs["session_id"][:30] + "...",
+                        "IP": hs["ip"],
+                        "Login Time": hs["login_time"][:19],
+                        "Tokens Accessed": hs["tokens_accessed"],
+                        "Total Accesses": hs["total_accesses"],
+                        "Exfil Attempts": hs["exfil_attempts"],
+                    }
+                )
+
+            if alert_rows:
+                st.dataframe(alert_rows, use_container_width=True)
+
+            st.divider()
+
         # Live sessions panel
         render_live_sessions_panel(sessions)
 
@@ -1527,24 +1842,45 @@ def main() -> None:
         # Recent sessions table
         st.markdown("### Recent Sessions")
 
-        summary_rows = []
-        for sess in sessions[:20]:
+        # Create table with clickable session IDs
+        cols = st.columns([3, 2, 3, 2, 2, 2, 2])
+        headers = [
+            "Session ID",
+            "IP",
+            "Login Time",
+            "Duration",
+            "Commands",
+            "Risk",
+            "Downloads",
+        ]
+        for col, header in zip(cols, headers):
+            col.markdown(f"**{header}**")
+
+        st.divider()
+
+        for idx, sess in enumerate(sessions[:20]):
+            cols = st.columns([3, 2, 3, 2, 2, 2, 2])
+            session_id = sess.get("session_id", "unknown")
             commands = sess.get("commands", [])
             risk = get_session_risk_level(sess)
-            summary_rows.append(
-                {
-                    "Session ID": sess.get("session_id", "unknown")[:30] + "...",
-                    "IP": sess.get("attacker_ip", "unknown"),
-                    "Login Time": sess.get("login_time", "")[:19],
-                    "Duration": format_duration(sess.get("duration_seconds")),
-                    "Commands": len(commands),
-                    "Risk": risk.upper(),
-                    "Downloads": len(sess.get("download_attempts", [])),
-                }
-            )
 
-        df = pd.DataFrame(summary_rows)
-        st.dataframe(df, use_container_width=True)
+            # Make session ID clickable
+            with cols[0]:
+                if st.button(
+                    session_id[:30] + "...",
+                    key=f"sess_btn_{idx}",
+                    use_container_width=True,
+                ):
+                    st.session_state.selected_session_id = session_id
+                    st.session_state.page = "Session Browser"
+                    st.rerun()
+
+            cols[1].write(sess.get("attacker_ip", "unknown"))
+            cols[2].write(sess.get("login_time", "")[:19])
+            cols[3].write(format_duration(sess.get("duration_seconds")))
+            cols[4].write(str(len(commands)))
+            cols[5].write(risk.upper())
+            cols[6].write(str(len(sess.get("download_attempts", []))))
 
     elif page == "Live Sessions":
         render_live_sessions_panel(sessions)
@@ -1573,7 +1909,22 @@ def main() -> None:
         session_ids = [s.get("session_id", "unknown") for s in filtered_sessions]
 
         if session_ids:
-            selected_id = st.selectbox("Select a session to inspect", session_ids)
+            # Check if a session was pre-selected from another page
+            default_index = 0
+            if (
+                hasattr(st.session_state, "selected_session_id")
+                and st.session_state.selected_session_id
+            ):
+                if st.session_state.selected_session_id in session_ids:
+                    default_index = session_ids.index(
+                        st.session_state.selected_session_id
+                    )
+                # Clear the selection after using it
+                st.session_state.selected_session_id = None
+
+            selected_id = st.selectbox(
+                "Select a session to inspect", session_ids, index=default_index
+            )
             selected = next(
                 (s for s in filtered_sessions if s.get("session_id") == selected_id),
                 None,
@@ -1587,6 +1938,9 @@ def main() -> None:
 
     elif page == "Credentials Analytics":
         render_credentials_analytics(sessions)
+
+    elif page == "Session Profiles":
+        render_session_profiles()
 
     elif page == "SSH Fingerprints":
         render_ssh_fingerprints(sessions)

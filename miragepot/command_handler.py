@@ -1571,6 +1571,8 @@ def init_session_state() -> Dict[str, Any]:
         # Honeytokens for credential tracking
         "honeytokens": honeytokens,
         "session_id": session_id,
+        # Tier usage tracking for attacker profiling (P4 enhancement)
+        "tier_usage": {"filesystem": 0, "cache": 0, "llm": 0},
     }
 
 
@@ -2811,19 +2813,35 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
     # First, try built-in fake filesystem commands.
     handled, output = handle_builtin(cmd, session_state)
     if handled:
+        # Track tier usage for attacker profiling
+        tier_usage = session_state.get("tier_usage")
+        if tier_usage is not None:
+            tier_usage["filesystem"] += 1
         return output
 
     # Handle interactive commands specially
     interactive_output = _handle_interactive_command(cmd, session_state)
     if interactive_output is not None:
+        # Track tier usage for attacker profiling
+        tier_usage = session_state.get("tier_usage")
+        if tier_usage is not None:
+            tier_usage["filesystem"] += 1
         return interactive_output
 
     # Next, try the cache JSON.
     cached = CACHE.get(cmd)
     if cached is not None:
         metrics.record_cache_hit()
+        # Track tier usage for attacker profiling
+        tier_usage = session_state.get("tier_usage")
+        if tier_usage is not None:
+            tier_usage["cache"] += 1
         return cached
 
     # Finally, fall back to the AI model.
     metrics.record_cache_miss()
+    # Track tier usage for attacker profiling
+    tier_usage = session_state.get("tier_usage")
+    if tier_usage is not None:
+        tier_usage["llm"] += 1
     return query_llm(cmd, session_state)

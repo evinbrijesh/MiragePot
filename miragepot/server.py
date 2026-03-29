@@ -116,6 +116,65 @@ def _fake_last_login() -> str:
     return f"Last login: {ts_str} from {ip}"
 
 
+def _generate_login_banner() -> str:
+    """Generate a realistic Ubuntu 22.04 MOTD (Message of the Day) banner.
+
+    Creates a fake system status banner that mimics what an attacker would see
+    when logging into a real Ubuntu server. This enhances realism and helps
+    the honeypot blend in as a legitimate target.
+
+    Returns:
+        str: Multi-line MOTD banner with system stats and package update info
+    """
+    now = datetime.utcnow()
+
+    # Randomize system stats to look realistic but varied
+    load_avg = [
+        round(random.uniform(0.1, 2.5), 2),
+        round(random.uniform(0.1, 2.0), 2),
+        round(random.uniform(0.1, 1.5), 2),
+    ]
+
+    users = random.randint(1, 3)
+    processes = random.randint(120, 250)
+    memory_usage = random.randint(15, 45)  # percentage
+    disk_usage = random.randint(20, 75)  # percentage
+    packages_to_update = random.randint(0, 87)
+    security_updates = random.randint(0, min(packages_to_update, 15))
+
+    banner_lines = [
+        "System information as of " + now.strftime("%a %b %d %H:%M:%S UTC %Y"),
+        "",
+        f"  System load:  {load_avg[0]}              Processes:             {processes}",
+        f"  Usage of /:   {disk_usage}.{random.randint(0, 9)}% of 48.29GB   Users logged in:       {users}",
+        f"  Memory usage: {memory_usage}%                 IPv4 address for eth0: 192.168.1.{random.randint(10, 250)}",
+        f"  Swap usage:   0%",
+        "",
+    ]
+
+    # Add package update notice if there are updates
+    if packages_to_update > 0:
+        banner_lines.append(f"{packages_to_update} updates can be applied immediately.")
+        if security_updates > 0:
+            banner_lines.append(
+                f"{security_updates} of these updates are standard security updates."
+            )
+        banner_lines.append(
+            "To see these additional updates run: apt list --upgradable"
+        )
+        banner_lines.append("")
+
+    # Footer messages (common Ubuntu MOTD elements)
+    banner_lines.extend(
+        [
+            "*** System restart required ***",
+            "",
+        ]
+    )
+
+    return "\r\n".join(banner_lines)
+
+
 def _rotate_logs(log_dir: Path, max_age_days: int = 30, max_files: int = 10000) -> None:
     """P5-03: Delete session log files older than max_age_days, or if there are
     more than max_files session logs (keeps the most recent ones).
@@ -289,6 +348,152 @@ def _append_command(session_log: Dict[str, Any], entry: Dict[str, Any]) -> None:
     if len(cmds) >= 1000:
         cmds.pop(0)
     cmds.append(entry)
+
+
+def _estimate_skill_level(
+    session_log: Dict[str, Any], tier_usage: Dict[str, int]
+) -> str:
+    """Estimate attacker skill level based on session behavior.
+
+    Uses a heuristic combining:
+    - Command tier usage (filesystem/cache/LLM distribution)
+    - TTP detection results
+    - Honeytoken interaction
+    - Command sophistication
+
+    Args:
+        session_log: Complete session data
+        tier_usage: Dict with keys "filesystem", "cache", "llm" and their counts
+
+    Returns:
+        str: "Script Kiddie", "Intermediate", or "Advanced"
+    """
+    # Extract relevant metrics
+    total_commands = len(session_log.get("commands", []))
+    if total_commands == 0:
+        return "Script Kiddie"
+
+    # Tier distribution analysis
+    filesystem_ratio = tier_usage.get("filesystem", 0) / total_commands
+    llm_ratio = tier_usage.get("llm", 0) / total_commands
+
+    # TTP analysis
+    ttp_summary = session_log.get("ttp_summary", {})
+    risk_level = ttp_summary.get("risk_level", "low")
+    current_stage = ttp_summary.get("current_stage", "reconnaissance")
+    stages_seen = len(ttp_summary.get("stages_seen", []))
+
+    # Honeytoken analysis
+    honeytoken_summary = session_log.get("honeytokens_summary", {})
+    tokens_accessed = honeytoken_summary.get("unique_tokens_accessed", 0)
+    exfil_attempts = honeytoken_summary.get("exfiltration_attempts", 0)
+
+    # Download attempts
+    download_attempts = len(session_log.get("download_attempts", []))
+
+    # Advanced indicators:
+    # - High filesystem/cache usage (knows what they're looking for)
+    # - Multiple attack stages
+    # - Credential exfiltration attempts
+    # - High-risk commands
+    if (
+        (filesystem_ratio > 0.6 or stages_seen >= 3)
+        and (risk_level in ("high", "critical"))
+        and (exfil_attempts > 0 or download_attempts > 2)
+    ):
+        return "Advanced"
+
+    # Intermediate indicators:
+    # - Mixed tier usage
+    # - Some reconnaissance and exploitation
+    # - Accessed honeytokens (knows where to look)
+    if (filesystem_ratio > 0.3 or tokens_accessed > 0) and (
+        stages_seen >= 2 or risk_level in ("medium", "high")
+    ):
+        return "Intermediate"
+
+    # Script Kiddie indicators:
+    # - High LLM usage (random/invalid commands)
+    # - Low stages progression
+    # - No sophisticated behavior
+    return "Script Kiddie"
+
+
+def _generate_attacker_profile(
+    session_log: Dict[str, Any], tier_usage: Dict[str, int]
+) -> Dict[str, Any]:
+    """Generate a comprehensive attacker profile from session data.
+
+    Analyzes the complete session to create a profile including:
+    - Skill level estimation
+    - Command tier usage breakdown
+    - TTP summary
+    - Honeytoken interaction
+    - Behavioral patterns
+
+    Args:
+        session_log: Complete session log data
+        tier_usage: Dict with keys "filesystem", "cache", "llm" and their counts
+
+    Returns:
+        Dict containing the attacker profile
+    """
+    total_commands = len(session_log.get("commands", []))
+
+    # Calculate tier percentages
+    tier_percentages = {
+        "filesystem": round(
+            tier_usage.get("filesystem", 0) / max(total_commands, 1) * 100, 1
+        ),
+        "cache": round(tier_usage.get("cache", 0) / max(total_commands, 1) * 100, 1),
+        "llm": round(tier_usage.get("llm", 0) / max(total_commands, 1) * 100, 1),
+    }
+
+    # Estimate skill level
+    skill_level = _estimate_skill_level(session_log, tier_usage)
+
+    # Build profile
+    profile = {
+        "session_id": session_log.get("session_id", "unknown"),
+        "attacker_ip": session_log.get("attacker_ip", "unknown"),
+        "login_time": session_log.get("login_time", ""),
+        "duration_seconds": session_log.get("duration_seconds", 0),
+        "skill_level": skill_level,
+        "total_commands": total_commands,
+        "tier_usage": tier_usage,
+        "tier_percentages": tier_percentages,
+        "ttp_summary": session_log.get("ttp_summary", {}),
+        "honeytokens_summary": session_log.get("honeytokens_summary", {}),
+        "download_attempts_count": len(session_log.get("download_attempts", [])),
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+    return profile
+
+
+def _save_attacker_profile(profile: Dict[str, Any]) -> None:
+    """Save an attacker profile to the profiles directory.
+
+    Args:
+        profile: Attacker profile dict from _generate_attacker_profile
+    """
+    profiles_dir = DATA_DIR / "profiles"
+    profiles_dir.mkdir(exist_ok=True)
+
+    session_id = profile.get("session_id", "unknown")
+    timestamp = int(time.time())
+    filename = f"{session_id}_{timestamp}.json"
+    path = profiles_dir / filename
+
+    try:
+        path.write_text(json.dumps(profile, indent=2), encoding="utf-8")
+        LOGGER.info(
+            "Saved attacker profile: %s (skill: %s)",
+            filename,
+            profile.get("skill_level"),
+        )
+    except Exception as exc:  # pragma: no cover
+        LOGGER.error("Failed to write attacker profile %s: %s", filename, exc)
 
 
 def _handle_client(
@@ -629,6 +834,11 @@ def _handle_client(
     )
     chan.send((os_banner + "\r\n").encode("utf-8"))
     chan.send((_fake_last_login() + "\r\n").encode("utf-8"))
+
+    # Send MOTD (Message of the Day) banner
+    motd_banner = _generate_login_banner()
+    chan.send((motd_banner + "\r\n").encode("utf-8"))
+
     chan.send(tty_handler.get_prompt().encode("utf-8"))
 
     # Register this session as live for real-time dashboard
@@ -816,6 +1026,16 @@ def _handle_client(
                     session_log["honeytokens_summary"].get("unique_tokens_accessed", 0),
                     session_log["honeytokens_summary"].get("exfiltration_attempts", 0),
                 )
+
+        # Generate and save attacker profile (P4 enhancement)
+        tier_usage = session_state.get(
+            "tier_usage", {"filesystem": 0, "cache": 0, "llm": 0}
+        )
+        if (
+            len(session_log.get("commands", [])) > 0
+        ):  # Only generate profile if commands were executed
+            profile = _generate_attacker_profile(session_log, tier_usage)
+            _save_attacker_profile(profile)
 
         _save_session_log(session_log)
 

@@ -81,11 +81,18 @@ if [[ ! -f ".env.docker" ]]; then
         cp .env.docker.example .env.docker
         echo "Created .env.docker from .env.docker.example"
         echo ""
-        echo "  >>> IMPORTANT: Open .env.docker and set GRAFANA_ADMIN_PASSWORD <<<"
-        echo "      (it is currently set to a placeholder value)"
-        echo ""
-        echo "Then re-run this script."
-        exit 1
+        # Check if passwords are still set to placeholder values
+        if grep -q "changeme_set_a_strong_password_here" .env.docker; then
+            echo "  >>> IMPORTANT: Open .env.docker and set GRAFANA_ADMIN_PASSWORD <<<"
+            echo "      (it is currently set to a placeholder value)"
+            echo ""
+            echo "Then re-run this script."
+            exit 1
+        else
+            echo "  ✓ Using demo credentials (admin/admin)"
+            echo "  ⚠️  WARNING: Change these for production use!"
+            echo ""
+        fi
     else
         echo "ERROR: .env.docker.example not found. Cannot create .env.docker."
         exit 1
@@ -173,12 +180,9 @@ open_url() {
 }
 
 echo ""
-echo "Opening dashboards in your browser..."
+echo "Opening MiragePot dashboard in your browser..."
 sleep 1
 open_url "http://localhost:8501"
-open_url "http://localhost:3000"
-open_url "http://localhost:9091"
-open_url "http://localhost:9093"
 
 # ── Summary ─────────────────────────────────────────────────────────
 echo ""

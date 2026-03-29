@@ -20,11 +20,11 @@ services:
         reservations:
           memory: 2g
     healthcheck:
-      test: ["CMD", "ollama", "list"]
+      test: ["CMD-SHELL", "timeout 5 bash -c '</dev/tcp/localhost/11434' || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 5
-      start_period: 360s
+      start_period: 60s
 
   # MiragePot SSH Honeypot
   miragepot:
@@ -39,6 +39,7 @@ services:
       - "127.0.0.1:9090:9090"   # Metrics endpoint
     volumes:
       - ../data/logs:/app/data/logs
+      - ../data/profiles:/app/data/profiles
       - ../data/cache.json:/app/data/cache.json
       - ../data/system_prompt.txt:/app/data/system_prompt.txt:ro
     env_file:

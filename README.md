@@ -23,6 +23,45 @@ MiragePot is an intelligent SSH honeypot that simulates a realistic Linux termin
 
 ## Quick Start
 
+### Sample Data for Testing
+
+Want to try the dashboard without setting up the honeypot? Generate realistic sample data instantly:
+
+```bash
+# Generate 10 realistic attacker sessions with complete TTP detections
+python scripts/generate_sample_data.py
+
+# View the dashboard
+./start.sh
+```
+
+**What's included:**
+- 10 diverse attacker sessions (script kiddies to APT groups)
+- 94 realistic commands with AI-generated responses
+- 84 MITRE ATT&CK technique detections across 14+ techniques
+- 11 honeytoken access events (AWS credentials, SSH keys, config files)
+- Complete attacker profiles with skill level analysis
+- Sessions spanning the last 7 days for timeline visualization
+
+The sample data matches MiragePot's exact runtime format, so you can explore the full dashboard immediately without waiting for real attacks.
+
+**Sample Session Types:**
+
+| Session | Archetype | IP | Skill Level | Duration | TTPs | Honeytokens |
+|---------|-----------|-----|-------------|----------|------|-------------|
+| 1 | Quick Scanner | 185.220.101.45 | Script Kiddie | 12s | 2 | - |
+| 2 | Credential Harvester | 45.141.84.197 | Intermediate | 95s | 4 | AWS, .env |
+| 3 | Payload Dropper | 91.197.232.109 | Intermediate | 180s | 4 | - |
+| 4 | Full Recon Bot | 222.186.42.117 | Intermediate | 220s | 4 | - |
+| 5 | Persistence Setter | 194.165.16.72 | Advanced | 340s | 6 | SSH keys |
+| 6 | Paranoid Attacker | 103.75.190.88 | Advanced | 260s | 7 | AWS |
+| 7 | SSH Key Stealer | 5.188.206.14 | Intermediate | 75s | 3 | SSH keys |
+| 8 | Brute Force Leftover | 178.128.23.145 | Script Kiddie | 8s | 1 | - |
+| 9 | Web Shell Hunter | 41.77.134.20 | Intermediate | 150s | 4 | .env, config |
+| 10 | APT Simulation | 58.220.219.247 | Advanced | 480s | 13 | AWS, SSH, shadow |
+
+To regenerate fresh data, use `python scripts/generate_sample_data.py --clean`.
+
 ### Prerequisites
 
 | Requirement | Minimum | Notes |

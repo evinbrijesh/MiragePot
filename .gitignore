@@ -84,6 +84,11 @@ logs/
 data/logs/*
 !data/logs/.gitkeep
 
+# Attacker profiles (generated at runtime)
+!data/profiles/
+data/profiles/*
+!data/profiles/.gitkeep
+
 # SSH keys (but keep the gitkeep)
 data/host.key
 data/*.key
