@@ -1,0 +1,6 @@
+FROM python:3.11-slim
+WORKDIR /app
+COPY alertmanager_discord_adapter.py .
+RUN pip install --no-cache-dir requests
+EXPOSE 9094
+CMD ["python", "alertmanager_discord_adapter.py"]

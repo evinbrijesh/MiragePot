@@ -81,6 +81,7 @@ from .honeytokens import (
 from .metrics import get_metrics_collector
 from .defense_module import calculate_threat_score
 from .config import get_config
+from .notifications import get_notifier
 
 MIRAGEPOT_DIR = Path(__file__).resolve().parent  # Package directory for static assets
 CACHE_PATH = MIRAGEPOT_DIR / "cache.json"
@@ -2822,12 +2823,61 @@ def handle_command(command: str, session_state: Dict[str, Any]) -> str:
             # Record honeytoken access in metrics
             metrics.record_honeytoken_triggered(token_id)
 
+            # Send notification for honeytoken access
+            try:
+                notifier = get_notifier()
+                # Get token details for notification
+                token_info = honeytokens.tokens.get(token_id, {})
+                token_type = (
+                    token_info.get("type", token_id)
+                    if isinstance(token_info, dict)
+                    else token_id
+                )
+                # Find file path where token is stored (approximate)
+                file_path = "unknown"
+                if "aws" in token_id.lower():
+                    file_path = "~/.aws/credentials"
+                elif "ssh" in token_id.lower():
+                    file_path = "~/.ssh/id_rsa"
+                elif "db" in token_id.lower():
+                    file_path = "/root/.env"
+
+                session_id = session_state.get("session_id", "unknown")
+                attacker_ip = session_state.get("attacker_ip", "unknown")
+                notifier.send_honeytoken_access_alert(
+                    token_type, file_path, cmd, session_id, attacker_ip
+                )
+            except Exception as notif_exc:
+                LOGGER.error(
+                    "Failed to send honeytoken access notification: %s", notif_exc
+                )
+
         # Check for exfiltration attempts
         is_exfil, destination = check_for_exfiltration(cmd, honeytokens)
         if is_exfil and accessed_tokens:
             record_exfiltration_attempt(honeytokens, accessed_tokens, cmd, destination)
             # Record exfiltration attempt in metrics
             metrics.record_honeytoken_triggered("exfiltration_attempt")
+
+            # Send notification for exfiltration attempt
+            try:
+                notifier = get_notifier()
+                session_id = session_state.get("session_id", "unknown")
+                attacker_ip = session_state.get("attacker_ip", "unknown")
+                # Convert token IDs to human-readable names
+                token_names = []
+                for token_id in accessed_tokens:
+                    token_info = honeytokens.tokens.get(token_id, {})
+                    if isinstance(token_info, dict):
+                        token_names.append(token_info.get("type", token_id))
+                    else:
+                        token_names.append(token_id)
+
+                notifier.send_exfiltration_alert(
+                    destination, token_names, cmd, session_id, attacker_ip
+                )
+            except Exception as notif_exc:
+                LOGGER.error("Failed to send exfiltration notification: %s", notif_exc)
 
     if cmd in ("exit", "logout"):
         # Signal upstream that session should close by returning

@@ -70,11 +70,14 @@ inhibit_rules:
 
 # Receiver definitions
 receivers:
-  # Default receiver - logs only (no external services required)
-  # Alerts will be visible in Alertmanager UI at http://localhost:9093
+  # Default receiver - Discord webhook via adapter for infrastructure alerts
+  # Sends to #alertmanager-infra channel
+  # The adapter translates AlertManager format to Discord embed format
   - name: 'default'
-    # No configs = alerts are stored/visible in Alertmanager UI only
-    # This is ideal for demo/portfolio purposes
+    webhook_configs:
+      # Use container name for inter-container communication
+      - url: 'http://miragepot-discord-adapter:9094/webhook'
+        send_resolved: true
 
 # =============================================================================
 # PRODUCTION CONFIGURATION EXAMPLES

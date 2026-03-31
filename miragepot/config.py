@@ -180,6 +180,52 @@ class SecurityConfig:
 
 
 @dataclass
+class NotificationConfig:
+    """Real-time attack notification configuration."""
+
+    enabled: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_NOTIFICATIONS_ENABLED", False)
+    )
+    discord_webhook_url: str = field(
+        default_factory=lambda: _get_env("MIRAGEPOT_DISCORD_WEBHOOK_URL", "")
+    )
+    telegram_bot_token: str = field(
+        default_factory=lambda: _get_env("MIRAGEPOT_TELEGRAM_BOT_TOKEN", "")
+    )
+    telegram_chat_id: str = field(
+        default_factory=lambda: _get_env("MIRAGEPOT_TELEGRAM_CHAT_ID", "")
+    )
+    min_risk_level: str = field(
+        default_factory=lambda: _get_env("MIRAGEPOT_NOTIFY_MIN_RISK", "high")
+    )
+    notify_session_end: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_NOTIFY_SESSION_END", True)
+    )
+    notify_realtime: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_NOTIFY_REALTIME", True)
+    )
+    notify_honeytokens_access: bool = field(
+        default_factory=lambda: _get_env_bool(
+            "MIRAGEPOT_NOTIFY_HONEYTOKENS_ACCESS", True
+        )
+    )
+    notify_honeytokens_exfil: bool = field(
+        default_factory=lambda: _get_env_bool(
+            "MIRAGEPOT_NOTIFY_HONEYTOKENS_EXFIL", True
+        )
+    )
+    notify_include_json: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_NOTIFY_INCLUDE_JSON", True)
+    )
+    notify_include_summary: bool = field(
+        default_factory=lambda: _get_env_bool("MIRAGEPOT_NOTIFY_INCLUDE_SUMMARY", True)
+    )
+    notify_rate_limit: int = field(
+        default_factory=lambda: _get_env_int("MIRAGEPOT_NOTIFY_RATE_LIMIT", 10)
+    )
+
+
+@dataclass
 class Config:
     """Main configuration container."""
 
@@ -189,6 +235,7 @@ class Config:
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     honeypot: HoneypotConfig = field(default_factory=HoneypotConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    notifications: NotificationConfig = field(default_factory=NotificationConfig)
 
     # Paths
     project_root: Path = PROJECT_ROOT

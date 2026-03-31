@@ -43,6 +43,7 @@ from .ttp_detector import get_attack_summary
 from .honeytokens import get_honeytokens_summary
 from .rate_limiter import get_rate_limiter
 from .metrics import get_metrics_collector, start_metrics_server
+from .notifications import get_notifier
 
 # Initialize color output for local console
 colorama_init(autoreset=True)
@@ -913,6 +914,22 @@ def _handle_client(
                     score = calculate_threat_score(command)
                     delay_applied = apply_tarpit(score)
 
+                    # Send real-time notification for high-threat commands
+                    if score >= 80:
+                        try:
+                            notifier = get_notifier()
+                            notifier.send_high_threat_command_alert(
+                                command,
+                                score,
+                                session_log["session_id"],
+                                attacker_ip,
+                            )
+                        except Exception as notif_exc:
+                            LOGGER.error(
+                                "Failed to send high-threat command notification: %s",
+                                notif_exc,
+                            )
+
                     try:
                         response = handle_command(command, session_state)
                     except Exception as cmd_exc:  # pragma: no cover - defensive
@@ -1042,6 +1059,13 @@ def _handle_client(
             _save_attacker_profile(profile)
 
         _save_session_log(session_log)
+
+        # Send notification for high-risk sessions
+        try:
+            notifier = get_notifier()
+            notifier.send_session_end_summary(session_log)
+        except Exception as notif_exc:
+            LOGGER.error("Failed to send session end notification: %s", notif_exc)
 
         # Remove from live sessions tracking
         _update_live_sessions(session_log, remove=True)

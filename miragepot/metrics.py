@@ -205,6 +205,31 @@ honeytokens_triggered = Counter(
     ["token_type"],
 )
 
+# Notification metrics
+notifications_sent_total = Counter(
+    "miragepot_notifications_sent_total",
+    "Total notifications sent successfully",
+    ["platform", "notification_type"],
+)
+
+notifications_failed_total = Counter(
+    "miragepot_notifications_failed_total",
+    "Total notifications that failed to send",
+    ["platform", "notification_type", "reason"],
+)
+
+notification_delivery_duration_seconds = Histogram(
+    "miragepot_notification_delivery_duration_seconds",
+    "Time taken to deliver notifications",
+    ["platform", "notification_type"],
+    buckets=(0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+notification_queue_size = Gauge(
+    "miragepot_notification_queue_size",
+    "Current number of notifications in rate limiter queue",
+)
+
 
 # =============================================================================
 # Metrics Collector Class
@@ -431,6 +456,55 @@ class MetricsCollector:
         """
         honeytokens_triggered.labels(token_type=token_type).inc()
         logger.info(f"🍯 Honeytoken triggered: {token_type}")
+
+    # -------------------------------------------------------------------------
+    # Notification Metrics
+    # -------------------------------------------------------------------------
+
+    def record_notification_sent(
+        self, platform: str, notification_type: str, duration: float
+    ):
+        """Record a successful notification delivery.
+
+        Args:
+            platform: Notification platform (e.g., 'discord', 'telegram')
+            notification_type: Type of notification (e.g., 'session_end', 'high_threat')
+            duration: Time taken to deliver notification in seconds
+        """
+        notifications_sent_total.labels(
+            platform=platform, notification_type=notification_type
+        ).inc()
+        notification_delivery_duration_seconds.labels(
+            platform=platform, notification_type=notification_type
+        ).observe(duration)
+        logger.debug(
+            f"Notification sent: {platform}/{notification_type} ({duration:.3f}s)"
+        )
+
+    def record_notification_failed(
+        self, platform: str, notification_type: str, reason: str
+    ):
+        """Record a failed notification delivery.
+
+        Args:
+            platform: Notification platform (e.g., 'discord', 'telegram')
+            notification_type: Type of notification (e.g., 'session_end', 'high_threat')
+            reason: Failure reason (e.g., 'http_error', 'timeout', 'invalid_config')
+        """
+        notifications_failed_total.labels(
+            platform=platform, notification_type=notification_type, reason=reason
+        ).inc()
+        logger.warning(
+            f"Notification failed: {platform}/{notification_type} - {reason}"
+        )
+
+    def update_notification_queue_size(self, size: int):
+        """Update the notification queue size metric.
+
+        Args:
+            size: Current number of notifications in rate limiter queue
+        """
+        notification_queue_size.set(size)
 
     # -------------------------------------------------------------------------
     # System Metrics

@@ -21,13 +21,13 @@ services:
           cpus: "4.0"
         reservations:
           memory: 2g
-    # Simplified healthcheck - just check if server is responding
+    # Simplified healthcheck - check if Ollama API responds
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:11434/ || exit 1"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
       retries: 3
-      start_period: 5s
+      start_period: 30s
 
   # MiragePot SSH Honeypot
   miragepot:
@@ -135,6 +135,7 @@ services:
       - miragepot-net
     depends_on:
       - prometheus
+      - discord-adapter
     deploy:
       resources:
         limits:
@@ -147,6 +148,33 @@ services:
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9093/-/healthy"]
       interval: 15s
+      timeout: 5s
+      retries: 2
+      start_period: 5s
+
+  # Discord webhook adapter for AlertManager
+  # Translates AlertManager alert format to Discord embed format
+  discord-adapter:
+    build:
+      context: ../tools
+      dockerfile: Dockerfile.adapter
+    image: miragepot-discord-adapter:latest
+    container_name: miragepot-discord-adapter
+    restart: unless-stopped
+    networks:
+      - miragepot-net
+    deploy:
+      resources:
+        limits:
+          memory: 64m
+          cpus: "0.1"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:9094/webhook', data=b'{\\\"status\\\":\\\"test\\\",\\\"alerts\\\":[]}', timeout=2)\""]
+      interval: 30s
       timeout: 5s
       retries: 2
       start_period: 5s
