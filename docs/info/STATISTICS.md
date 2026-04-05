@@ -18,9 +18,9 @@
 | Prompt Injection Patterns (Direct) | **72** | `miragepot/command_handler.py` | Count `INJECTION_PATTERNS` list |
 | Prompt Injection Patterns (Encoded) | **16** | `miragepot/command_handler.py` | Count `ENCODED_INJECTION_PATTERNS` list |
 | **Total Injection Patterns** | **88** | `miragepot/command_handler.py` | 72 + 16 |
-| Fake Filesystem Directories | **~104** | `miragepot/command_handler.py` | Count `directories` set entries |
-| Fake Filesystem Files | **~154** | `miragepot/command_handler.py` | Count `files` dict entries |
-| **Total Filesystem Entries** | **~258** | `miragepot/command_handler.py` | directories + files |
+| Fake Filesystem Directories | **94** | `miragepot/command_handler.py` | Count `directories` set entries |
+| Fake Filesystem Files | **60** | `miragepot/command_handler.py` | Count `files` dict entries |
+| **Total Filesystem Entries** | **154** | `miragepot/command_handler.py` | directories + files |
 | Prometheus Metrics | **~25** | `miragepot/metrics.py` | Count metric definitions |
 
 ---
@@ -89,14 +89,14 @@
 
 | Module | Lines of Code | Primary Function |
 |--------|---------------|------------------|
-| `ttp_detector.py` | ~2,100 | MITRE ATT&CK detection (expanded) |
+| `ttp_detector.py` | 2,197 | MITRE ATT&CK detection (expanded) |
 | `command_handler.py` | 2,932 | Hybrid command engine, filesystem |
 | `dashboard/app.py` | 1,995 | Streamlit monitoring UI |
 | `server.py` | 1,263 | SSH server, session management |
 | `honeytokens.py` | 649 | Credential trap generation |
 | `metrics.py` | 620 | Prometheus instrumentation |
 | `notifications.py` | 572 | Real-time alerting |
-| `ai_interface.py` | ~400 | LLM integration |
+| `ai_interface.py` | 936 | LLM integration |
 | **Total Package** | **~15,000** | All `miragepot/` modules |
 
 ### Test Coverage

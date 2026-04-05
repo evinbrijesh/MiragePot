@@ -91,7 +91,7 @@ MiragePot/
 ├── dashboard/           # Real-time Streamlit monitoring
 ├── docker/              # Full stack deployment
 ├── grafana/             # Pre-built dashboards
-├── tests/               # Unit tests (count depends on branch)
+├── tests/               # Unit tests (652 test functions)
 └── docs/                # Comprehensive documentation
 ```
 
@@ -345,7 +345,7 @@ ttps = self._detect_ttps(command)
 
 ```bash
 pytest tests/ -v --tb=short
-# 566 passing tests across all modules
+# 652 passing tests across all modules
 ```
 
 ---

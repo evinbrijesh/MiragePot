@@ -21,7 +21,7 @@ During preparation for a comprehensive project report, a thorough audit revealed
 | MITRE ATT&CK Techniques | 163-191 | 38 |
 | Honeytoken Types | 7-17 | 10 |
 | Prompt Injection Patterns | 104 | 88 |
-| Filesystem Entries | 300+ | ~258 |
+| Filesystem Entries | 300+ | 154 (94 dirs + 60 files) |
 | Telegram Notifications | "Fully implemented" | Config-only (planned) |
 
 ### Files Corrected
@@ -67,7 +67,7 @@ During preparation for a comprehensive project report, a thorough audit revealed
 | MITRE ATT&CK Techniques | **50** |
 | Honeytoken Types | 10 |
 | Prompt Injection Patterns | 88 (72 direct + 16 encoded) |
-| Filesystem Entries | ~258 |
+| Filesystem Entries | 154 |
 
 ## Phase 3: Future Enhancements (Planned)
 

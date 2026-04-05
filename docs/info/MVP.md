@@ -36,7 +36,7 @@ The current MVP baseline (v0.2.0) delivers a fully functional, deployable honeyp
 
 - A working SSH server on port 2222 that accepts any credentials and simulates an interactive shell
 - A three-tier hybrid command engine (virtual filesystem → static cache → LLM fallback)
-- Real-time MITRE ATT&CK TTP detection across 38 technique IDs
+- Real-time MITRE ATT&CK TTP detection across 50 technique IDs
 - Honeytoken generation and access detection for 10 fake credential types
 - An active defense system with threat scoring and tarpit delays
 - A Streamlit-based live monitoring dashboard
@@ -103,7 +103,7 @@ In the context of a cybersecurity research tool and academic project, the MVP is
 | Commands produce believable responses | 3-tier engine operational | Done |
 | LLM generates context-aware replies | Phi-3 via Ollama, <30s timeout | Done |
 | All sessions logged to structured JSON | Per-session files in `data/logs/` | Done |
-| MITRE ATT&CK mapping works | 38 technique IDs, 10 stages | Done |
+| MITRE ATT&CK mapping works | 50 technique IDs, 10 stages | Done |
 | Honeytoken access detected | 10 credential types, per-session | Done |
 | Dashboard displays live data | Streamlit, port 8501 | Done |
 | One-command Docker deployment | `docker compose up -d` | Done |
@@ -129,11 +129,11 @@ The following principles guided all MVP decisions:
 |---|---|
 | SSH server | Full SSH-2 server via Paramiko; 4096-bit RSA host key; accepts all credentials; PTY emulation |
 | 3-tier command engine | Virtual filesystem layer → static JSON cache → Ollama LLM fallback |
-| Virtual filesystem | In-memory Ubuntu 20.04 directory tree; 250+ pre-seeded fake files |
+| Virtual filesystem | In-memory Ubuntu 20.04 directory tree; 154 pre-seeded fake files |
 | LLM integration | Microsoft Phi-3 via Ollama; system prompt with session state injection; 88-pattern prompt injection protection |
 | Response validation | Post-LLM sanitisation; strips AI self-revelations, markdown, invalid dates |
 | Honeytoken system | 10 fake credential types; per-session unique values; access detection and alerting |
-| TTP detection | 38 MITRE ATT&CK technique IDs (62 single-command + 6 chain patterns); 10 attack stages |
+| TTP detection | 50 MITRE ATT&CK technique IDs (~120 single-command + 6 chain patterns); 10 attack stages |
 | Active defence | Keyword-based threat scoring; tarpit delays of 1–5 seconds for threat score ≥ 40 |
 | Rate limiting | 3 concurrent connections per IP; 50 global maximum; 300-second block duration |
 | Download capture | Detects and logs wget, curl, scp, rsync, ftp commands without executing them |
@@ -222,22 +222,22 @@ Attacker
 
 | Module | File | Lines | Responsibility |
 |---|---|---|---|
-| SSH Interface | `ssh_interface.py` | 298 | Paramiko ServerInterface, authentication, PTY negotiation |
+| SSH Interface | `ssh_interface.py` | 532 | Paramiko ServerInterface, authentication, PTY negotiation |
 | Server | `server.py` | 1,263 | Session lifecycle, main connection loop, thread management, attacker profiling |
-| Command Handler | `command_handler.py` | 2,932 | 3-tier hybrid engine, 300+ pre-seeded file contents |
+| Command Handler | `command_handler.py` | 2,932 | 3-tier hybrid engine, 154 pre-seeded file contents |
 | AI Interface | `ai_interface.py` | 936 | Ollama/Phi-3 bridge, system prompt injection, prompt injection protection |
 | Defense Module | `defense_module.py` | 103 | Keyword threat scoring, tarpit delay calculation |
-| TTP Detector | `ttp_detector.py` | 1,701 | MITRE ATT&CK pattern matching, 38 technique IDs, chain detection |
+| TTP Detector | `ttp_detector.py` | 2,197 | MITRE ATT&CK pattern matching, 50 technique IDs, chain detection |
 | Honeytokens | `honeytokens.py` | 649 | 10 fake credential types, per-session generation, access detection |
-| Filesystem | `filesystem.py` | 635 | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
-| System State | `system_state.py` | 794 | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |
-| TTY Handler | `tty_handler.py` | 544 | Raw TTY input, line editing, command history, tab completion |
-| Response Validator | `response_validator.py` | 566 | LLM output sanitisation, anti-hallucination rules |
-| Download Capture | `download_capture.py` | 789 | wget, curl, scp, rsync, ftp detection and logging |
-| Rate Limiter | `rate_limiter.py` | 302 | Per-IP and global connection limits, IP blocking |
+| Filesystem | `filesystem.py` | 646 | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
+| System State | `system_state.py` | 800 | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |
+| TTY Handler | `tty_handler.py` | 649 | Raw TTY input, line editing, command history, tab completion |
+| Response Validator | `response_validator.py` | 597 | LLM output sanitisation, anti-hallucination rules |
+| Download Capture | `download_capture.py` | 794 | wget, curl, scp, rsync, ftp detection and logging |
+| Rate Limiter | `rate_limiter.py` | 397 | Per-IP and global connection limits, IP blocking |
 | Metrics | `metrics.py` | 620 | Prometheus metrics exporter (~25 metric types) |
 | Session Export | `session_export.py` | 609 | Export sessions as text, JSON, or HTML |
-| Config | `config.py` | 255 | Typed configuration dataclasses, environment variable loading |
+| Config | `config.py` | 312 | Typed configuration dataclasses, environment variable loading |
 | Notifications | `notifications.py` | 572 | Real-time alerts via Discord and Telegram webhooks |
 | Dashboard | `dashboard/app.py` | 1,995 | Streamlit real-time monitoring dashboard |
 | Runner | `run.py` | — | Unified launcher for honeypot + dashboard subprocess |
@@ -304,7 +304,7 @@ The command engine is the core of MiragePot. It processes every command through 
 
 **Tier 1 — Virtual Filesystem**
 
-Handles all commands that interact with the filesystem: `ls`, `cd`, `cat`, `cp`, `mv`, `mkdir`, `rm`, `touch`, `chmod`, `chown`, `find`, `stat`, `pwd`, `ln`, `echo` (redirected), and more. The filesystem is seeded at session start with 250+ realistic files including:
+Handles all commands that interact with the filesystem: `ls`, `cd`, `cat`, `cp`, `mv`, `mkdir`, `rm`, `touch`, `chmod`, `chown`, `find`, `stat`, `pwd`, `ln`, `echo` (redirected), and more. The filesystem is seeded at session start with 154 total entries (94 directories + 60 files) including realistic files such as:
 
 - `/etc/passwd`, `/etc/shadow`, `/etc/hosts`, `/etc/crontab`
 - `/etc/nginx/nginx.conf`, `/etc/mysql/my.cnf`
@@ -337,7 +337,7 @@ The AI interface bridges the command handler and Ollama. Key mechanisms:
 
 ### 6.4 Response Validation
 
-**Module:** `response_validator.py` (566 lines)
+**Module:** `response_validator.py` (597 lines)
 
 LLM outputs are post-processed before being returned to the attacker. The validator:
 
@@ -370,9 +370,9 @@ Honeytokens are fake credentials and secrets embedded in the virtual filesystem.
 
 ### 6.6 MITRE ATT&CK TTP Detection
 
-**Module:** `ttp_detector.py` (1,701 lines)
+**Module:** `ttp_detector.py` (2,197 lines)
 
-Every command is analysed against a database of 38 MITRE ATT&CK technique IDs:
+Every command is analysed against a database of 50 MITRE ATT&CK technique IDs:
 
 - **Single-command patterns**: regex-based, each mapped to a specific ATT&CK Technique ID, tactic, and description
 - **Multi-command chain patterns**: detect sequences of commands that together constitute a known attack pattern (e.g. discovery followed by lateral movement)
@@ -400,7 +400,7 @@ The active defence system assigns threat scores to commands based on a keyword d
 
 ### 6.8 Rate Limiting
 
-**Module:** `rate_limiter.py` (302 lines)
+**Module:** `rate_limiter.py` (397 lines)
 
 - Maximum 3 concurrent SSH connections from the same IP address
 - Maximum 50 total concurrent connections globally

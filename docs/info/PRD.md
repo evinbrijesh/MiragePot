@@ -203,7 +203,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | F-3.1 | The virtual filesystem shall simulate an Ubuntu 20.04 directory tree | `/etc`, `/root`, `/home`, `/var`, `/proc`, `/tmp`, `/usr`, `/bin` directories are present and browseable |
-| F-3.2 | The filesystem shall be seeded per-session with realistic file content | At session start, 250+ pre-seeded files are present including `/etc/passwd`, `.bash_history`, `auth.log`, `nginx.conf`, `.env` |
+| F-3.2 | The filesystem shall be seeded per-session with realistic file content | At session start, 154 pre-seeded files are present including `/etc/passwd`, `.bash_history`, `auth.log`, `nginx.conf`, `.env` |
 | F-3.3 | Filesystem state shall persist within a session | Files created, modified, or deleted within a session remain so for the duration of that session |
 | F-3.4 | Path traversal and symlink attacks shall be handled safely | Paths like `../../etc/passwd` and symbolic link chains resolve to safe virtual paths without accessing the host |
 
@@ -225,7 +225,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | F-5.1 | The system shall map attacker commands to MITRE ATT&CK techniques | Each detected command produces a log entry with ATT&CK Technique ID, tactic name, and description |
-| F-5.2 | The system shall support comprehensive TTP detection | 38 MITRE ATT&CK technique IDs are detected across 10 attack stages |
+| F-5.2 | The system shall support comprehensive TTP detection | 50 MITRE ATT&CK technique IDs are detected across 10 attack stages |
 | F-5.3 | The system shall detect multi-command attack chains | Chain patterns detect sequences of commands that together constitute a known TTP |
 | F-5.4 | Detection results shall be available in the dashboard and Prometheus metrics | TTP detection counts are broken down by stage in Grafana; detected TTPs are shown in session detail view |
 
@@ -396,10 +396,10 @@ Grafana (3000)
 |---|---|---|
 | SSH Interface | `ssh_interface.py` | Paramiko ServerInterface; authentication; PTY negotiation |
 | Server | `server.py` | Session lifecycle; main connection loop; thread management |
-| Command Handler | `command_handler.py` | 3-tier hybrid engine; 250+ pre-seeded file contents |
+| Command Handler | `command_handler.py` | 3-tier hybrid engine; 154 pre-seeded file contents |
 | AI Interface | `ai_interface.py` | Ollama/Phi-3 bridge; session state injection; prompt injection protection |
 | Defense Module | `defense_module.py` | Keyword threat scoring; tarpit delay calculation |
-| TTP Detector | `ttp_detector.py` | MITRE ATT&CK pattern matching; 38 technique IDs; chain detection |
+| TTP Detector | `ttp_detector.py` | MITRE ATT&CK pattern matching; 50 technique IDs; chain detection |
 | Honeytokens | `honeytokens.py` | 10 fake credential types; per-session generation; access detection |
 | Filesystem | `filesystem.py` | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
 | System State | `system_state.py` | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |

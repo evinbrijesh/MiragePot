@@ -19,8 +19,8 @@ This document tracks planned features, enhancements, and architectural improveme
 - Session logging to JSON (`data/logs/session_*.json`)
 
 ### ✅ Threat Detection & Intelligence
-- MITRE ATT&CK TTP detection (146 patterns across 12 tactics)
-- Honeytoken system (7 credential types: AWS keys, SSH keys, API tokens, etc.)
+- MITRE ATT&CK TTP detection (~120 single patterns + 6 chain patterns across 12 tactics, 50 technique IDs)
+- Honeytoken system (10 credential types: AWS keys, SSH keys, API tokens, database passwords, etc.)
 - Threat scoring with configurable tarpit delays
 - Download/exfiltration attempt capture (wget, curl, scp patterns)
 - Prompt injection protection (direct + encoded patterns)
