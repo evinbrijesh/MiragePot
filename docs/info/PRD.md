@@ -203,7 +203,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | F-3.1 | The virtual filesystem shall simulate an Ubuntu 20.04 directory tree | `/etc`, `/root`, `/home`, `/var`, `/proc`, `/tmp`, `/usr`, `/bin` directories are present and browseable |
-| F-3.2 | The filesystem shall be seeded per-session with realistic file content | At session start, 300+ pre-seeded files are present including `/etc/passwd`, `.bash_history`, `auth.log`, `nginx.conf`, `.env` |
+| F-3.2 | The filesystem shall be seeded per-session with realistic file content | At session start, 250+ pre-seeded files are present including `/etc/passwd`, `.bash_history`, `auth.log`, `nginx.conf`, `.env` |
 | F-3.3 | Filesystem state shall persist within a session | Files created, modified, or deleted within a session remain so for the duration of that session |
 | F-3.4 | Path traversal and symlink attacks shall be handled safely | Paths like `../../etc/passwd` and symbolic link chains resolve to safe virtual paths without accessing the host |
 
@@ -213,7 +213,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
-| F-4.1 | The system shall generate 17 distinct honeytoken types per session | AWS access/secret keys, Stripe API key, DB password, internal API key, JWT secret, GitHub PAT, admin password, SSH private key, API tokens, Slack webhook, SendGrid API key, Twilio auth token, Google API key, Firebase key, encryption keys, and session secrets are all present in the session filesystem |
+| F-4.1 | The system shall generate 10 distinct honeytoken types per session | AWS access/secret keys, GitHub PAT, Stripe API key, JWT secret, DB password, generic API key, SSH private key, Slack webhook, and SendGrid API key are all present in the session filesystem |
 | F-4.2 | Honeytoken values shall be unique per session | Two different sessions produce different token values; format is realistic for each token type |
 | F-4.3 | The system shall detect and log honeytoken access events | Reading a file containing a honeytoken creates a log entry and increments the Prometheus counter |
 | F-4.4 | Honeytoken events shall be surfaced in the dashboard | The Streamlit dashboard shows a real-time honeytoken alert feed |
@@ -225,7 +225,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 | ID | Requirement | Acceptance Criteria |
 |---|---|---|
 | F-5.1 | The system shall map attacker commands to MITRE ATT&CK techniques | Each detected command produces a log entry with ATT&CK Technique ID, tactic name, and description |
-| F-5.2 | The system shall support comprehensive TTP detection | 191 MITRE ATT&CK technique IDs are detected across 10 attack stages |
+| F-5.2 | The system shall support comprehensive TTP detection | 38 MITRE ATT&CK technique IDs are detected across 10 attack stages |
 | F-5.3 | The system shall detect multi-command attack chains | Chain patterns detect sequences of commands that together constitute a known TTP |
 | F-5.4 | Detection results shall be available in the dashboard and Prometheus metrics | TTP detection counts are broken down by stage in Grafana; detected TTPs are shown in session detail view |
 
@@ -271,7 +271,7 @@ MiragePot replaces static response lookup with dynamic LLM inference, backed by 
 |---|---|---|
 | F-7.1 | The system shall forward unrecognised commands to the locally-running Ollama LLM | A response is generated via `phi3` (or the configured model) for any Tier-3 command |
 | F-7.2 | The LLM system prompt shall include the simulated server identity and current session state | The LLM receives hostname, OS details, current working directory, and active user with every request |
-| F-7.3 | The system shall screen all LLM input for prompt injection attempts | 104 compiled regex patterns (88 direct + 16 encoded) block injection payloads before they reach the LLM |
+| F-7.3 | The system shall screen all LLM input for prompt injection attempts | 88 compiled regex patterns (72 direct + 16 encoded) block injection payloads before they reach the LLM |
 | F-7.4 | Blocked injection attempts shall be logged and return a plausible terminal error | The attacker sees a `command not found`-style error; the attempt is recorded in the session log |
 | F-7.5 | The system shall enforce an LLM response timeout | If Ollama does not respond within 30 seconds (configurable), a safe fallback response is returned and the session continues |
 
@@ -396,11 +396,11 @@ Grafana (3000)
 |---|---|---|
 | SSH Interface | `ssh_interface.py` | Paramiko ServerInterface; authentication; PTY negotiation |
 | Server | `server.py` | Session lifecycle; main connection loop; thread management |
-| Command Handler | `command_handler.py` | 3-tier hybrid engine; 300+ pre-seeded file contents |
+| Command Handler | `command_handler.py` | 3-tier hybrid engine; 250+ pre-seeded file contents |
 | AI Interface | `ai_interface.py` | Ollama/Phi-3 bridge; session state injection; prompt injection protection |
 | Defense Module | `defense_module.py` | Keyword threat scoring; tarpit delay calculation |
-| TTP Detector | `ttp_detector.py` | MITRE ATT&CK pattern matching; 191 technique IDs; chain detection |
-| Honeytokens | `honeytokens.py` | 17 fake credential types; per-session generation; access detection |
+| TTP Detector | `ttp_detector.py` | MITRE ATT&CK pattern matching; 38 technique IDs; chain detection |
+| Honeytokens | `honeytokens.py` | 10 fake credential types; per-session generation; access detection |
 | Filesystem | `filesystem.py` | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
 | System State | `system_state.py` | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |
 | TTY Handler | `tty_handler.py` | Raw TTY input; line editing; command history; tab completion |

@@ -1,6 +1,8 @@
 # Real-time Attack Notifications
 
-MiragePot includes a powerful real-time notification system that alerts security teams when live attacks occur. Get instant Discord or Telegram notifications for high-risk sessions, dangerous commands, honeytoken access, and data exfiltration attempts.
+MiragePot includes a powerful real-time notification system that alerts security teams when live attacks occur. Get instant Discord notifications for high-risk sessions, dangerous commands, honeytoken access, and data exfiltration attempts.
+
+> **Note:** Discord notifications are fully implemented and working. Telegram support is planned for a future release (configuration variables exist but the sending functionality is not yet implemented).
 
 ## Table of Contents
 
@@ -160,9 +162,11 @@ Discord webhooks have rate limits:
 
 ---
 
-## Telegram Setup (Optional)
+## Telegram Setup (Planned Feature)
 
-### Creating a Telegram Bot
+> **Status:** Telegram configuration variables are supported, but the sending functionality (`_send_telegram()`) is not yet implemented. This section documents the planned configuration for when Telegram support is added.
+
+### Creating a Telegram Bot (Future Use)
 
 **Step 1: Message @BotFather**
 1. Open Telegram and search for `@BotFather`
@@ -186,13 +190,14 @@ MIRAGEPOT_TELEGRAM_CHAT_ID=123456789
 
 | Feature | Discord | Telegram |
 |---------|---------|----------|
+| Implementation Status | ✅ **Working** | ⏳ **Planned** |
 | Setup Complexity | Easy (just webhook URL) | Medium (bot + chat ID) |
 | Rich Formatting | ✅ Embeds with colors | ⚠️ Markdown only |
 | File Attachments | ✅ 8MB | ✅ 50MB |
 | Rate Limits | 5 req/2s | 30 msg/s |
 | Best For | Team channels | Personal alerts |
 
-**Recommendation**: Start with Discord for better visual experience, add Telegram later if needed.
+**Recommendation**: Use Discord for now (fully implemented). Telegram support will be added in a future release.
 
 ---
 
@@ -639,7 +644,7 @@ MIRAGEPOT_NOTIFY_INCLUDE_JSON=false
 A: Yes! Set multiple webhooks in separate environment variables (requires code modification) or use the same webhook for all notifications.
 
 **Q: Can I send to both Discord and Telegram?**  
-A: Yes! Set both `DISCORD_WEBHOOK_URL` and `TELEGRAM_BOT_TOKEN`. Notifications will be sent to both platforms.
+A: Currently only Discord is fully implemented. Telegram support is planned for a future release. Once implemented, you'll be able to set both `DISCORD_WEBHOOK_URL` and `TELEGRAM_BOT_TOKEN` to send notifications to both platforms.
 
 **Q: Will notifications slow down the honeypot?**  
 A: No. Notifications are sent asynchronously with minimal latency (<50ms). The honeypot continues processing attacks without delay.

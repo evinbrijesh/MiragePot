@@ -55,7 +55,7 @@ Runs the SSH server, listens on port 2222, spawns a new thread per connection. M
 A Paramiko `ServerInterface` subclass. Overrides `check_auth_password` to **always return `AUTH_SUCCESSFUL`** — meaning any attacker can get in. This is intentional: you want them inside so you can observe their behavior.
 
 ### `command_handler.py` — The Brain
-The hybrid command engine. Has 300+ fake filesystem files embedded directly (realistic `/etc/passwd`, nginx configs, AWS credential files, `.env` files, fake bash history, logs, etc.). For each command:
+The hybrid command engine. Has 250+ fake filesystem files embedded directly (realistic `/etc/passwd`, nginx configs, AWS credential files, `.env` files, fake bash history, logs, etc.). For each command:
 1. Checks a JSON cache first (instant, no LLM cost)
 2. Falls back to the LLM for novel commands
 3. Falls back to static strings if LLM is down

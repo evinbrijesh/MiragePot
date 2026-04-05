@@ -36,8 +36,8 @@ The current MVP baseline (v0.2.0) delivers a fully functional, deployable honeyp
 
 - A working SSH server on port 2222 that accepts any credentials and simulates an interactive shell
 - A three-tier hybrid command engine (virtual filesystem → static cache → LLM fallback)
-- Real-time MITRE ATT&CK TTP detection across 191 technique IDs
-- Honeytoken generation and access detection for 17 fake credential types
+- Real-time MITRE ATT&CK TTP detection across 38 technique IDs
+- Honeytoken generation and access detection for 10 fake credential types
 - An active defense system with threat scoring and tarpit delays
 - A Streamlit-based live monitoring dashboard
 - A full Prometheus + Grafana observability stack
@@ -103,8 +103,8 @@ In the context of a cybersecurity research tool and academic project, the MVP is
 | Commands produce believable responses | 3-tier engine operational | Done |
 | LLM generates context-aware replies | Phi-3 via Ollama, <30s timeout | Done |
 | All sessions logged to structured JSON | Per-session files in `data/logs/` | Done |
-| MITRE ATT&CK mapping works | 163 patterns, 10 stages | Done |
-| Honeytoken access detected | 7 credential types, per-session | Done |
+| MITRE ATT&CK mapping works | 38 technique IDs, 10 stages | Done |
+| Honeytoken access detected | 10 credential types, per-session | Done |
 | Dashboard displays live data | Streamlit, port 8501 | Done |
 | One-command Docker deployment | `docker compose up -d` | Done |
 | Test coverage | Unit tests included; run `pytest` to verify | Done |
@@ -129,11 +129,11 @@ The following principles guided all MVP decisions:
 |---|---|
 | SSH server | Full SSH-2 server via Paramiko; 4096-bit RSA host key; accepts all credentials; PTY emulation |
 | 3-tier command engine | Virtual filesystem layer → static JSON cache → Ollama LLM fallback |
-| Virtual filesystem | In-memory Ubuntu 20.04 directory tree; 300+ pre-seeded fake files |
+| Virtual filesystem | In-memory Ubuntu 20.04 directory tree; 250+ pre-seeded fake files |
 | LLM integration | Microsoft Phi-3 via Ollama; system prompt with session state injection; 88-pattern prompt injection protection |
 | Response validation | Post-LLM sanitisation; strips AI self-revelations, markdown, invalid dates |
-| Honeytoken system | 7 fake credential types; per-session unique values; access detection and alerting |
-| TTP detection | 163 MITRE ATT&CK patterns (151 single-command + 12 chain); 10 attack stages |
+| Honeytoken system | 10 fake credential types; per-session unique values; access detection and alerting |
+| TTP detection | 38 MITRE ATT&CK technique IDs (62 single-command + 6 chain patterns); 10 attack stages |
 | Active defence | Keyword-based threat scoring; tarpit delays of 1–5 seconds for threat score ≥ 40 |
 | Rate limiting | 3 concurrent connections per IP; 50 global maximum; 300-second block duration |
 | Download capture | Detects and logs wget, curl, scp, rsync, ftp commands without executing them |
@@ -227,15 +227,15 @@ Attacker
 | Command Handler | `command_handler.py` | 2,932 | 3-tier hybrid engine, 300+ pre-seeded file contents |
 | AI Interface | `ai_interface.py` | 936 | Ollama/Phi-3 bridge, system prompt injection, prompt injection protection |
 | Defense Module | `defense_module.py` | 103 | Keyword threat scoring, tarpit delay calculation |
-| TTP Detector | `ttp_detector.py` | 1,701 | MITRE ATT&CK pattern matching, 191 technique IDs, chain detection |
-| Honeytokens | `honeytokens.py` | 649 | 17 fake credential types, per-session generation, access detection |
+| TTP Detector | `ttp_detector.py` | 1,701 | MITRE ATT&CK pattern matching, 38 technique IDs, chain detection |
+| Honeytokens | `honeytokens.py` | 649 | 10 fake credential types, per-session generation, access detection |
 | Filesystem | `filesystem.py` | 635 | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
 | System State | `system_state.py` | 794 | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |
 | TTY Handler | `tty_handler.py` | 544 | Raw TTY input, line editing, command history, tab completion |
 | Response Validator | `response_validator.py` | 566 | LLM output sanitisation, anti-hallucination rules |
 | Download Capture | `download_capture.py` | 789 | wget, curl, scp, rsync, ftp detection and logging |
 | Rate Limiter | `rate_limiter.py` | 302 | Per-IP and global connection limits, IP blocking |
-| Metrics | `metrics.py` | 486 | Prometheus metrics exporter (~25 metric types) |
+| Metrics | `metrics.py` | 620 | Prometheus metrics exporter (~25 metric types) |
 | Session Export | `session_export.py` | 609 | Export sessions as text, JSON, or HTML |
 | Config | `config.py` | 255 | Typed configuration dataclasses, environment variable loading |
 | Notifications | `notifications.py` | 572 | Real-time alerts via Discord and Telegram webhooks |
@@ -262,7 +262,7 @@ Raw bytes (SSH channel)
         │
         └─── Tier 3: LLM fallback ─────────►  AI Interface
                                                     │
-                                                    ├─ Prompt injection check (104 patterns)
+                                                     ├─ Prompt injection check (88 patterns)
                                                     ├─ System prompt + session state
                                                     ├─ Ollama Phi-3 inference
                                                     └─ Response Validator ──► Response
@@ -304,7 +304,7 @@ The command engine is the core of MiragePot. It processes every command through 
 
 **Tier 1 — Virtual Filesystem**
 
-Handles all commands that interact with the filesystem: `ls`, `cd`, `cat`, `cp`, `mv`, `mkdir`, `rm`, `touch`, `chmod`, `chown`, `find`, `stat`, `pwd`, `ln`, `echo` (redirected), and more. The filesystem is seeded at session start with 300+ realistic files including:
+Handles all commands that interact with the filesystem: `ls`, `cd`, `cat`, `cp`, `mv`, `mkdir`, `rm`, `touch`, `chmod`, `chown`, `find`, `stat`, `pwd`, `ln`, `echo` (redirected), and more. The filesystem is seeded at session start with 250+ realistic files including:
 
 - `/etc/passwd`, `/etc/shadow`, `/etc/hosts`, `/etc/crontab`
 - `/etc/nginx/nginx.conf`, `/etc/mysql/my.cnf`
@@ -332,7 +332,7 @@ Any command not handled by Tiers 1 or 2 is forwarded to Ollama running Microsoft
 The AI interface bridges the command handler and Ollama. Key mechanisms:
 
 - **Session state injection**: the working directory, current user, and session-created files are appended to every prompt. This gives the LLM the context it needs to maintain session consistency.
-- **Prompt injection protection**: 104 compiled regex patterns (88 direct attack patterns + 16 encoded/obfuscated variants) screen every incoming command before it reaches the LLM. Commands matching these patterns are blocked and a generic "command not found" response is returned.
+- **Prompt injection protection**: 88 compiled regex patterns (72 direct attack patterns + 16 encoded/obfuscated variants) screen every incoming command before it reaches the LLM. Commands matching these patterns are blocked and a generic "command not found" response is returned.
 - **Timeout handling**: if Ollama does not respond within 30 seconds (configurable), the request is cancelled and a safe fallback response is returned. The session is not dropped.
 
 ### 6.4 Response Validation
@@ -355,31 +355,24 @@ Honeytokens are fake credentials and secrets embedded in the virtual filesystem.
 
 | Honeytoken Type | Location | Example Format |
 |---|---|---|
-| AWS Access Key | `~/.aws/credentials` | `AKIA...` (20-character key + secret) |
+| AWS Access Key | `~/.aws/credentials` | `AKIA...` (20-character key) |
 | AWS Secret Key | `~/.aws/credentials` | 40-character secret |
+| GitHub Personal Access Token | `~/.gitconfig`, `.env` | `ghp_...` format |
 | Stripe API Key | `.env` | `sk_live_...` |
-| Database Password | `.env`, `config.php` | Random 24-character string |
-| Internal API Key | `config.yml` | UUID-format string |
 | JWT Secret | `.env` | 64-character hex string |
-| GitHub Personal Access Token | `~/.gitconfig` | `ghp_...` format |
-| Admin Password | `/etc/shadow` fragment | Realistic hash format |
+| Database Password | `.env`, `config.php` | Random 24-character string |
+| Generic API Key | Various config files | UUID-format string |
 | SSH Private Key | `~/.ssh/id_rsa` | RSA private key format |
-| API Token | Various config files | Bearer token format |
 | Slack Webhook | `.env` | `https://hooks.slack.com/...` |
 | SendGrid API Key | `.env` | `SG....` format |
-| Twilio Auth Token | `.env` | 32-character hex string |
-| Google API Key | `.env`, config files | `AIza...` format |
-| Firebase Key | `.env` | Firebase project credentials |
-| Encryption Key | `.env`, config files | 32/64-character hex string |
-| Session Secret | `.env` | Random secret string |
 
-(17 distinct honeytoken types supported)
+(10 distinct honeytoken types supported)
 
 ### 6.6 MITRE ATT&CK TTP Detection
 
 **Module:** `ttp_detector.py` (1,701 lines)
 
-Every command is analysed against a database of 191 MITRE ATT&CK technique IDs:
+Every command is analysed against a database of 38 MITRE ATT&CK technique IDs:
 
 - **Single-command patterns**: regex-based, each mapped to a specific ATT&CK Technique ID, tactic, and description
 - **Multi-command chain patterns**: detect sequences of commands that together constitute a known attack pattern (e.g. discovery followed by lateral movement)
@@ -630,7 +623,7 @@ The project demonstrates practical expertise across three domains:
 - **Network programming**: SSH-2 protocol (Paramiko), PTY emulation, raw TTY handling, rate limiting
 - **Applied AI**: local LLM inference (Ollama/Phi-3), system prompt engineering, response validation, prompt injection defence
 
-The codebase is well-structured (18 modules, ~13,700 lines), includes a substantial unit test suite, and is fully documented. v0.2.0 is the foundation for subsequent production-readiness phases that will add CI/CD, security hardening, and formal versioning.
+The codebase is well-structured (18 modules, ~14,654 lines), includes a substantial unit test suite, and is fully documented. v0.2.0 is the foundation for subsequent production-readiness phases that will add CI/CD, security hardening, and formal versioning.
 
 ---
 
