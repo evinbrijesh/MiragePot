@@ -462,11 +462,29 @@ defenders more time to observe and potentially react.
   typed dataclass structures.
 - Provides `get_config()` as a singleton accessor for all modules.
 - Configuration sections: `ssh`, `llm`, `honeypot`, `logging`,
-  `dashboard`, `security`.
+  `dashboard`, `security`, `notifications`.
 
 ---
 
-### 2.17 `dashboard/app.py` – Forensic Dashboard (Streamlit)
+### 2.17 `miragepot/notifications.py` – Real-Time Notifications
+
+**Responsibilities:**
+
+- Send real-time alerts when significant security events occur.
+- Supports Discord and Telegram webhook delivery.
+- Rate-limited to prevent notification spam.
+- Attaches session JSON logs to notifications for detailed review.
+
+**Key Events:**
+
+- New session connections with attacker IP and credentials
+- Honeytoken access events
+- High-severity TTP detections
+- Session completion summaries with threat scores
+
+---
+
+### 2.18 `dashboard/app.py` – Forensic Dashboard (Streamlit)
 
 **Responsibilities:**
 
@@ -516,7 +534,7 @@ environment variable.
 
 ---
 
-### 2.18 `run.py` – Unified Runner
+### 2.19 `run.py` – Unified Runner
 
 **Responsibilities:**
 

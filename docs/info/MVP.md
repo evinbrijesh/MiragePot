@@ -36,8 +36,8 @@ The current MVP baseline (v0.2.0) delivers a fully functional, deployable honeyp
 
 - A working SSH server on port 2222 that accepts any credentials and simulates an interactive shell
 - A three-tier hybrid command engine (virtual filesystem → static cache → LLM fallback)
-- Real-time MITRE ATT&CK TTP detection across 163 patterns
-- Honeytoken generation and access detection for 7 fake credential types
+- Real-time MITRE ATT&CK TTP detection across 191 technique IDs
+- Honeytoken generation and access detection for 17 fake credential types
 - An active defense system with threat scoring and tarpit delays
 - A Streamlit-based live monitoring dashboard
 - A full Prometheus + Grafana observability stack
@@ -223,25 +223,26 @@ Attacker
 | Module | File | Lines | Responsibility |
 |---|---|---|---|
 | SSH Interface | `ssh_interface.py` | 298 | Paramiko ServerInterface, authentication, PTY negotiation |
-| Server | `server.py` | 704 | Session lifecycle, main connection loop, thread management |
-| Command Handler | `command_handler.py` | 2,589 | 3-tier hybrid engine, 300+ pre-seeded file contents |
-| AI Interface | `ai_interface.py` | 689 | Ollama/Phi-3 bridge, system prompt injection, prompt injection protection |
+| Server | `server.py` | 1,263 | Session lifecycle, main connection loop, thread management, attacker profiling |
+| Command Handler | `command_handler.py` | 2,932 | 3-tier hybrid engine, 300+ pre-seeded file contents |
+| AI Interface | `ai_interface.py` | 936 | Ollama/Phi-3 bridge, system prompt injection, prompt injection protection |
 | Defense Module | `defense_module.py` | 103 | Keyword threat scoring, tarpit delay calculation |
-| TTP Detector | `ttp_detector.py` | 1,685 | MITRE ATT&CK pattern matching, 163 patterns, chain detection |
-| Honeytokens | `honeytokens.py` | 600 | 7 fake credential types, per-session generation, access detection |
+| TTP Detector | `ttp_detector.py` | 1,701 | MITRE ATT&CK pattern matching, 191 technique IDs, chain detection |
+| Honeytokens | `honeytokens.py` | 649 | 17 fake credential types, per-session generation, access detection |
 | Filesystem | `filesystem.py` | 635 | Virtual filesystem operations (stat, chmod, chown, find, path normalisation) |
 | System State | `system_state.py` | 794 | Realistic ps, top, netstat, ss, free, uptime, w, last, systemctl output |
 | TTY Handler | `tty_handler.py` | 544 | Raw TTY input, line editing, command history, tab completion |
 | Response Validator | `response_validator.py` | 566 | LLM output sanitisation, anti-hallucination rules |
 | Download Capture | `download_capture.py` | 789 | wget, curl, scp, rsync, ftp detection and logging |
 | Rate Limiter | `rate_limiter.py` | 302 | Per-IP and global connection limits, IP blocking |
-| Metrics | `metrics.py` | 486 | Prometheus metrics exporter (~20 metric types) |
+| Metrics | `metrics.py` | 486 | Prometheus metrics exporter (~25 metric types) |
 | Session Export | `session_export.py` | 609 | Export sessions as text, JSON, or HTML |
 | Config | `config.py` | 255 | Typed configuration dataclasses, environment variable loading |
-| Dashboard | `dashboard/app.py` | 1,540 | Streamlit real-time monitoring dashboard |
+| Notifications | `notifications.py` | 572 | Real-time alerts via Discord and Telegram webhooks |
+| Dashboard | `dashboard/app.py` | 1,995 | Streamlit real-time monitoring dashboard |
 | Runner | `run.py` | — | Unified launcher for honeypot + dashboard subprocess |
 
-**Total core package:** ~13,700 lines of Python
+**Total core package:** ~14,654 lines of Python
 
 ### 5.3 Data Flow — Command Processing
 
@@ -261,7 +262,7 @@ Raw bytes (SSH channel)
         │
         └─── Tier 3: LLM fallback ─────────►  AI Interface
                                                     │
-                                                    ├─ Prompt injection check (88 patterns)
+                                                    ├─ Prompt injection check (104 patterns)
                                                     ├─ System prompt + session state
                                                     ├─ Ollama Phi-3 inference
                                                     └─ Response Validator ──► Response
@@ -297,7 +298,7 @@ The SSH server is built on Paramiko, Python's SSH-2 protocol library. Key implem
 
 ### 6.2 Three-Tier Hybrid Command Engine
 
-**Module:** `command_handler.py` (2,589 lines)
+**Module:** `command_handler.py` (2,932 lines)
 
 The command engine is the core of MiragePot. It processes every command through three tiers in order:
 
@@ -326,12 +327,12 @@ Any command not handled by Tiers 1 or 2 is forwarded to Ollama running Microsoft
 
 ### 6.3 LLM Integration and Prompt Injection Protection
 
-**Module:** `ai_interface.py` (689 lines)
+**Module:** `ai_interface.py` (936 lines)
 
 The AI interface bridges the command handler and Ollama. Key mechanisms:
 
 - **Session state injection**: the working directory, current user, and session-created files are appended to every prompt. This gives the LLM the context it needs to maintain session consistency.
-- **Prompt injection protection**: 88 compiled regex patterns (72 direct attack patterns + 16 encoded/obfuscated variants) screen every incoming command before it reaches the LLM. Commands matching these patterns are blocked and a generic "command not found" response is returned.
+- **Prompt injection protection**: 104 compiled regex patterns (88 direct attack patterns + 16 encoded/obfuscated variants) screen every incoming command before it reaches the LLM. Commands matching these patterns are blocked and a generic "command not found" response is returned.
 - **Timeout handling**: if Ollama does not respond within 30 seconds (configurable), the request is cancelled and a safe fallback response is returned. The session is not dropped.
 
 ### 6.4 Response Validation
@@ -348,28 +349,40 @@ LLM outputs are post-processed before being returned to the attacker. The valida
 
 ### 6.5 Honeytoken System
 
-**Module:** `honeytokens.py` (600 lines)
+**Module:** `honeytokens.py` (649 lines)
 
 Honeytokens are fake credentials and secrets embedded in the virtual filesystem. They are unique per session — generated with realistic formatting at session start. When an attacker reads a file containing a honeytoken, the event is logged, a Prometheus metric is incremented, and a dashboard alert is raised.
 
 | Honeytoken Type | Location | Example Format |
 |---|---|---|
 | AWS Access Key | `~/.aws/credentials` | `AKIA...` (20-character key + secret) |
+| AWS Secret Key | `~/.aws/credentials` | 40-character secret |
 | Stripe API Key | `.env` | `sk_live_...` |
 | Database Password | `.env`, `config.php` | Random 24-character string |
 | Internal API Key | `config.yml` | UUID-format string |
 | JWT Secret | `.env` | 64-character hex string |
 | GitHub Personal Access Token | `~/.gitconfig` | `ghp_...` format |
 | Admin Password | `/etc/shadow` fragment | Realistic hash format |
+| SSH Private Key | `~/.ssh/id_rsa` | RSA private key format |
+| API Token | Various config files | Bearer token format |
+| Slack Webhook | `.env` | `https://hooks.slack.com/...` |
+| SendGrid API Key | `.env` | `SG....` format |
+| Twilio Auth Token | `.env` | 32-character hex string |
+| Google API Key | `.env`, config files | `AIza...` format |
+| Firebase Key | `.env` | Firebase project credentials |
+| Encryption Key | `.env`, config files | 32/64-character hex string |
+| Session Secret | `.env` | Random secret string |
+
+(17 distinct honeytoken types supported)
 
 ### 6.6 MITRE ATT&CK TTP Detection
 
-**Module:** `ttp_detector.py` (1,685 lines)
+**Module:** `ttp_detector.py` (1,701 lines)
 
-Every command is analysed against a database of 163 attack patterns mapped to the MITRE ATT&CK framework:
+Every command is analysed against a database of 191 MITRE ATT&CK technique IDs:
 
-- **151 single-command patterns**: regex-based, each mapped to a specific ATT&CK Technique ID, tactic, and description
-- **12 multi-command chain patterns**: detect sequences of commands that together constitute a known attack pattern (e.g. discovery followed by lateral movement)
+- **Single-command patterns**: regex-based, each mapped to a specific ATT&CK Technique ID, tactic, and description
+- **Multi-command chain patterns**: detect sequences of commands that together constitute a known attack pattern (e.g. discovery followed by lateral movement)
 
 **10 attack stages tracked:**
 
@@ -405,7 +418,7 @@ The active defence system assigns threat scores to commands based on a keyword d
 
 **Prometheus metrics (`metrics.py`, port 9090):**
 
-Approximately 20 metric types exported, including:
+Approximately 25 metric types exported, including:
 - Total and active connection counts
 - Session duration histograms
 - Command counts (by tier: filesystem / cache / LLM)
