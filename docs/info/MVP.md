@@ -1,7 +1,7 @@
 # MiragePot — Minimum Viable Product (MVP) Document
 
 **Project:** MiragePot — AI-Driven Adaptive SSH Honeypot  
-**Version:** 0.1.0  
+**Version:** 0.2.0  
 **Author:** Evin Brijesh  
 **Programme:** B.Tech Computer Science and Engineering, Semester 6  
 **Institution:** Mar Athanasius College of Engineering, Kothamangalam  
@@ -15,14 +15,14 @@
 1. [Executive Summary](#1-executive-summary)
 2. [Problem Statement](#2-problem-statement)
 3. [MVP Definition and Goals](#3-mvp-definition-and-goals)
-4. [Scope of v0.1.0](#4-scope-of-v010)
+4. [Scope of v0.2.0](#4-scope-of-v020)
 5. [System Architecture](#5-system-architecture)
 6. [Feature Implementation](#6-feature-implementation)
 7. [Technology Stack](#7-technology-stack)
 8. [Testing and Validation](#8-testing-and-validation)
 9. [Deployment](#9-deployment)
 10. [Known Limitations](#10-known-limitations)
-11. [Out of Scope for v0.1.0](#11-out-of-scope-for-v010)
+11. [Out of Scope for v0.2.0](#11-out-of-scope-for-v020)
 12. [Future Roadmap](#12-future-roadmap)
 13. [Summary](#13-summary)
 
@@ -32,7 +32,7 @@
 
 MiragePot is an AI-driven adaptive SSH honeypot that simulates a realistic Ubuntu 20.04 Linux server to attract, engage, and profile malicious actors. Unlike traditional honeypots that serve static, pre-scripted responses, MiragePot uses a locally-running Large Language Model (Microsoft Phi-3 via Ollama) to generate believable, context-aware replies to attacker commands in real time.
 
-The MVP (v0.1.0) delivers a fully functional, deployable honeypot system with the following core capabilities:
+The current MVP baseline (v0.2.0) delivers a fully functional, deployable honeypot system with the following core capabilities:
 
 - A working SSH server on port 2222 that accepts any credentials and simulates an interactive shell
 - A three-tier hybrid command engine (virtual filesystem → static cache → LLM fallback)
@@ -42,7 +42,7 @@ The MVP (v0.1.0) delivers a fully functional, deployable honeypot system with th
 - A Streamlit-based live monitoring dashboard
 - A full Prometheus + Grafana observability stack
 - A complete Docker deployment with one-command setup (`docker compose up -d`)
-- 566 passing unit tests across 13 test files
+- Unit tests included (run `pytest` to verify in your environment)
 
 The project demonstrates the practical intersection of cybersecurity (honeypot design, attacker profiling, MITRE ATT&CK), network programming (SSH protocol, PTY emulation), and applied AI (local LLM inference, prompt injection protection, response validation).
 
@@ -107,7 +107,7 @@ In the context of a cybersecurity research tool and academic project, the MVP is
 | Honeytoken access detected | 7 credential types, per-session | Done |
 | Dashboard displays live data | Streamlit, port 8501 | Done |
 | One-command Docker deployment | `docker compose up -d` | Done |
-| Test coverage | 566 tests, all passing | Done |
+| Test coverage | Unit tests included; run `pytest` to verify | Done |
 
 ### 3.3 Design Principles
 
@@ -121,7 +121,7 @@ The following principles guided all MVP decisions:
 
 ---
 
-## 4. Scope of v0.1.0
+## 4. Scope of v0.2.0
 
 ### 4.1 What Is Included
 
@@ -146,11 +146,11 @@ The following principles guided all MVP decisions:
 | Docker deployment | 5-container stack; auto-downloads Phi-3 model on first run |
 | Offline deployment | Portable ~6–7 GB bundle with checksums for air-gapped demos |
 | Configuration system | Fully environment-variable driven; typed dataclasses; `.env` file support |
-| Test suite | 566 unit tests across 13 test files; 0 failures |
+| Test suite | Unit tests included; run `pytest` to verify |  |
 
 ### 4.2 Deliberate Exclusions
 
-The following were considered and explicitly excluded from v0.1.0 to keep the MVP focused:
+The following were considered and explicitly excluded from v0.2.0 to keep the MVP focused:
 
 | Excluded Feature | Reason |
 |---|---|
@@ -314,7 +314,7 @@ Handles all commands that interact with the filesystem: `ls`, `cd`, `cat`, `cp`,
 
 **Tier 2 — Static Response Cache**
 
-A JSON file (`data/cache.json`) maps commonly-used commands to realistic, pre-written responses. This covers commands where speed and consistency are more important than variability: `whoami`, `id`, `uname -a`, `ifconfig`, `ip addr`, `env`, `printenv`, `hostname`, etc.
+A JSON file (`miragepot/cache.json`) maps commonly-used commands to realistic, pre-written responses. This covers commands where speed and consistency are more important than variability: `whoami`, `id`, `uname -a`, `ifconfig`, `ip addr`, `env`, `printenv`, `hostname`, etc.
 
 **Tier 3 — LLM Fallback**
 
@@ -473,7 +473,7 @@ Approximately 20 metric types exported, including:
 | `test_ttp_detector.py` | `ttp_detector.py` | Pattern matching, chain detection, stage mapping |
 | `test_tty_handler.py` | `tty_handler.py` | Line editing, history, tab completion |
 
-**Total: 566 tests | Failures: 0 | Python version: 3.13.5**
+**Test counts and pass/fail status depend on the environment and installed dependencies.**
 
 ### 8.2 Test Strategy
 
@@ -544,13 +544,13 @@ All configuration is controlled via environment variables with the `MIRAGEPOT_` 
 | `MIRAGEPOT_MAX_CONNECTIONS_PER_IP` | `3` | Rate limit per IP |
 | `MIRAGEPOT_MAX_TOTAL_CONNECTIONS` | `50` | Global concurrent session limit |
 | `MIRAGEPOT_LOG_PASSWORDS` | `false` | Whether to log attacker passwords |
-| `MIRAGEPOT_DASHBOARD_PASSWORD` | (none) | Optional dashboard password |
+| `MIRAGEPOT_DASHBOARD_PASSWORD` | (required) | Required password (dashboard refuses to start if unset) |
 
 ---
 
 ## 10. Known Limitations
 
-The following limitations are documented and acknowledged in v0.1.0:
+The following limitations are documented and acknowledged in v0.2.0:
 
 | Limitation | Impact | Notes |
 |---|---|---|
@@ -563,7 +563,7 @@ The following limitations are documented and acknowledged in v0.1.0:
 
 ---
 
-## 11. Out of Scope for v0.1.0
+## 11. Out of Scope for v0.2.0
 
 The following features were considered and explicitly excluded from the MVP:
 
@@ -589,7 +589,7 @@ These phases are planned and partially designed but not yet executed:
 |---|---|---|
 | Phase 2 | CI/CD pipeline — GitHub Actions for pytest, mypy, ruff on every push; Docker image builds; auto GitHub Release on version tag | Planned |
 | Phase 3 | Security hardening — VM firewall rules, Docker resource limits, credential safety review | Planned |
-| Phase 4 | Versioning and release — CHANGELOG.md, git tag `v0.1.0`, consistent version labelling | Planned |
+| Phase 4 | Versioning and release — CHANGELOG.md, git tags, consistent version labelling | Planned |
 | Phase 5 | Cloud deployment — VM provisioning, `deploy.sh` finalisation, automated backups | Planned |
 
 ### 12.2 Feature Roadmap
@@ -609,7 +609,7 @@ These phases are planned and partially designed but not yet executed:
 
 ## 13. Summary
 
-MiragePot v0.1.0 is a complete, functional, and deployable AI-driven SSH honeypot. The MVP delivers on every core success criterion: any attacker connecting on port 2222 receives believable, AI-generated responses; all activity is logged, TTP-mapped, and surfaced in a real-time monitoring dashboard; the entire system deploys with a single `docker compose up -d` command.
+MiragePot v0.2.0 is a complete, functional, and deployable AI-driven SSH honeypot. The MVP delivers on every core success criterion: any attacker connecting on port 2222 receives believable, AI-generated responses; all activity is logged, TTP-mapped, and surfaced in a real-time monitoring dashboard; the entire system deploys with a single `docker compose up -d` command.
 
 The project demonstrates practical expertise across three domains:
 
@@ -617,11 +617,11 @@ The project demonstrates practical expertise across three domains:
 - **Network programming**: SSH-2 protocol (Paramiko), PTY emulation, raw TTY handling, rate limiting
 - **Applied AI**: local LLM inference (Ollama/Phi-3), system prompt engineering, response validation, prompt injection defence
 
-The codebase is well-structured (18 modules, ~13,700 lines), thoroughly tested (566 unit tests, 0 failures), and fully documented (17 documentation files). v0.1.0 is the foundation for subsequent production-readiness phases that will add CI/CD, security hardening, formal versioning, and cloud deployment capabilities.
+The codebase is well-structured (18 modules, ~13,700 lines), includes a substantial unit test suite, and is fully documented. v0.2.0 is the foundation for subsequent production-readiness phases that will add CI/CD, security hardening, and formal versioning.
 
 ---
 
 *MiragePot — AI-Driven Adaptive SSH Honeypot*  
-*Version 0.1.0 | B.Tech Computer Science and Engineering, Semester 6*  
+*Version 0.2.0 | B.Tech Computer Science and Engineering, Semester 6*  
 *Mar Athanasius College of Engineering, Kothamangalam*  
 *Evin Brijesh | 2026*

@@ -148,6 +148,7 @@ Connection to 127.0.0.1 closed.
 - **Session Details**: Timeline view of commands for each session
 - **Threat Scoring**: Color-coded threat levels for each command
 - **Auto-refresh**: Automatically updates with new data
+- **Session Profiles**: Reads attacker profiles from `data/profiles/` (skill estimate + tier usage)
 
 ### Dashboard Controls
 

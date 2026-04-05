@@ -18,7 +18,7 @@ MiragePot includes a powerful real-time notification system that alerts security
 
 ## Features
 
-### 🚨 Real-time Attack Alerts
+### Real-time Attack Alerts
 
 - **Session End Summaries**: Get detailed reports when high-risk attack sessions end
   - Complete MITRE ATT&CK technique mapping
@@ -38,7 +38,7 @@ MiragePot includes a powerful real-time notification system that alerts security
   - Detects curl POST, wget, nc, and other exfiltration methods
   - Shows destination and what tokens are being exfiltrated
 
-### 🎨 Rich Discord Embeds
+### Rich Discord Embeds
 
 Color-coded notifications for quick threat assessment:
 - 🔴 **Red**: Critical threats (exfiltration, risk level: critical)
@@ -46,7 +46,7 @@ Color-coded notifications for quick threat assessment:
 - 🟡 **Yellow**: Honeytoken access
 - 🔵 **Blue**: Informational alerts
 
-### ⚡ Performance
+### Performance
 
 - **Non-blocking**: Notifications sent asynchronously, won't slow down honeypot
 - **Rate limiting**: Token bucket algorithm prevents spam (default: 10/minute)
@@ -723,5 +723,5 @@ Alert if notification failures increase:
 ---
 
 **Last Updated**: 2026-03-30  
-**MiragePot Version**: 0.3.0+  
+**MiragePot Version**: 0.2.0  
 **Maintained by**: MiragePot Team

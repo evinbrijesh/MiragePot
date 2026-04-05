@@ -643,7 +643,7 @@ cp .env.docker.example .env.docker
 
 # 2. Volume permission issues
 chmod 755 data/logs/
-chmod 644 data/cache.json data/system_prompt.txt
+# cache.json and system_prompt.txt are packaged assets under miragepot/ (read-only)
 
 # 3. Corrupted image - re-export and reload
 # On source machine:
@@ -696,7 +696,7 @@ docker compose up -d
 rm -rf data/logs/*.json
 
 # Reset cache
-rm data/cache.json
+# cache.json is a packaged asset (miragepot/cache.json); nothing to reset under data/
 
 # Reinstall
 pip uninstall miragepot

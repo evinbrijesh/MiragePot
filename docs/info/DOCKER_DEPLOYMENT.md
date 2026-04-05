@@ -401,7 +401,7 @@ MIRAGEPOT_MAX_CONNECTIONS_PER_IP=3
 MIRAGEPOT_MAX_TOTAL_CONNECTIONS=50
 MIRAGEPOT_BLOCK_DURATION=300       # 5 minutes
 MIRAGEPOT_MAX_SESSION_DURATION=3600  # 1 hour
-MIRAGEPOT_DASHBOARD_PASSWORD=       # Optional: set a password to protect the dashboard
+MIRAGEPOT_DASHBOARD_PASSWORD=changeme_set_a_strong_password_here  # Required: dashboard refuses to start if unset
 ```
 
 #### Alerting (Full Stack)
@@ -471,7 +471,8 @@ To run the honeypot on port 22:
 | Volume | Container Path | Purpose |
 |--------|---------------|---------|
 | `./data/logs` | `/app/data/logs` | Session JSON logs |
-| `./data/cache.json` | `/app/data/cache.json` | LLM response cache |
+| `./data/profiles` | `/app/data/profiles` | Attacker profile JSON |
+| `miragepot/cache.json` | `/app/miragepot/cache.json` | Static response cache (packaged asset) |
 | `./data/host.key` | `/app/data/host.key` | SSH host key |
 | `ollama-data` | `/root/.ollama` | Ollama models |
 | `prometheus-data` | `/prometheus` | Metrics data |

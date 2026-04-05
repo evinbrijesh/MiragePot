@@ -185,7 +185,7 @@ filesystem. Additionally, each logged `SessionCommand` records its
 All of these operations are carefully limited to in-memory structures so
 no real files or directories are touched.
 
-**Cache Fast Path (`data/cache.json`):**
+**Cache Fast Path (`miragepot/cache.json`):**
 
 Some common and low-risk commands are answered from a static JSON file
 for speed and realism, for example:
@@ -227,7 +227,7 @@ terminal-style output.
 **Key Functions:**
 
 - `_load_system_prompt()`
-  - Reads `data/system_prompt.txt` which defines how the model should
+  - Reads `miragepot/system_prompt.txt` (packaged asset) which defines how the model should
     behave (Ubuntu shell, no AI/self-references, short outputs, etc.).
   - If the file is missing or empty, falls back to a minimal hard-coded
     prompt and logs an error instead of crashing.

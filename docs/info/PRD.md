@@ -8,7 +8,7 @@
 | **Programme** | B.Tech Computer Science and Engineering, Semester 6 |
 | **Institution** | Mar Athanasius College of Engineering, Kothamangalam |
 | **Date** | 2026-02-28 |
-| **Product Version** | 0.1.0 |
+| **Product Version** | 0.2.0 |
 
 ---
 
@@ -35,7 +35,7 @@
 10. [Deployment Requirements](#10-deployment-requirements)
 11. [Technology Stack](#11-technology-stack)
 12. [Constraints and Assumptions](#12-constraints-and-assumptions)
-13. [Out of Scope (v0.1.0)](#13-out-of-scope-for-v010)
+13. [Out of Scope (v0.2.0)](#13-out-of-scope-for-v020)
 14. [Future Considerations](#14-future-considerations)
 15. [Glossary](#15-glossary)
 
@@ -488,7 +488,7 @@ All configuration is controlled via environment variables with the `MIRAGEPOT_` 
 | **Dashboard** | `MIRAGEPOT_DASHBOARD_HOST` | `localhost` | Dashboard listen address |
 | | `MIRAGEPOT_DASHBOARD_PORT` | `8501` | Dashboard listen port |
 | | `MIRAGEPOT_DASHBOARD_REFRESH` | `5` | Dashboard auto-refresh interval (seconds) |
-| | `MIRAGEPOT_DASHBOARD_PASSWORD` | (none) | Optional password to protect dashboard access |
+| | `MIRAGEPOT_DASHBOARD_PASSWORD` | (required) | Required password to protect dashboard access (dashboard refuses to start if unset) |
 | **Logging** | `MIRAGEPOT_LOG_LEVEL` | `INFO` | Log verbosity (DEBUG / INFO / WARNING / ERROR) |
 | | `MIRAGEPOT_LOG_FILE` | (none) | Optional log output file path |
 | **Identity** | `MIRAGEPOT_HOSTNAME` | `miragepot` | Simulated server hostname (shown in prompt and system prompt) |
@@ -588,7 +588,7 @@ ssh root@localhost -p 2222   # any password
 |---|---|
 | C-1 | The system must never execute any command on the host operating system. This is an absolute safety boundary with no exceptions. |
 | C-2 | All LLM inference must be local. Attacker input must not be transmitted to any external API or cloud service. |
-| C-3 | The system is designed for single-node deployment. Multi-node or distributed operation is not supported in v0.1.0. |
+| C-3 | The system is designed for single-node deployment. Multi-node or distributed operation is not supported in v0.2.0. |
 | C-4 | The system targets SSH clients only. Other protocols (Telnet, RDP, HTTP) are out of scope. |
 | C-5 | LLM response quality is bounded by the capabilities of Microsoft Phi-3. Responses may occasionally be inconsistent or non-realistic; this is an accepted trade-off for local-only operation. |
 
@@ -604,7 +604,7 @@ ssh root@localhost -p 2222   # any password
 
 ---
 
-## 13. Out of Scope for v0.1.0
+## 13. Out of Scope for v0.2.0
 
 The following features are explicitly outside the scope of the current release:
 
@@ -632,7 +632,7 @@ The following features are explicitly outside the scope of the current release:
 |---|---|
 | CI/CD pipeline | GitHub Actions: automated pytest + mypy + ruff on every push; Docker image build to `ghcr.io`; auto GitHub Release on version tag |
 | CHANGELOG.md | Formal version history document |
-| Git version tag `v0.1.0` | First official release tag |
+| Git version tags | Version tagging for releases |
 | TTY cursor movement | Implement left/right arrow key cursor positioning in `tty_handler.py` |
 
 ### 14.2 Medium-Term

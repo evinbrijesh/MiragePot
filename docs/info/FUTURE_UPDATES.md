@@ -202,14 +202,14 @@ Destination: attacker.com
 - [ ] Test error handling and retries
 
 **Phase 7: Documentation**
-- [ ] Create `docs/NOTIFICATIONS.md`
+- [x] Create `docs/info/NOTIFICATIONS.md`
   - [ ] Discord webhook setup guide
   - [ ] Telegram bot setup guide (@BotFather)
   - [ ] Configuration examples
   - [ ] Notification format reference
   - [ ] Troubleshooting section
 - [ ] Update `README.md` - add notifications feature
-- [ ] Update `docs/CONFIGURATION.md` - notification settings
+- [x] Update `docs/info/CONFIGURATION.md` - notification settings
 - [ ] Add screenshots of notifications
 - [ ] Add FAQ section
 
@@ -355,7 +355,7 @@ Destination: attacker.com
 
 ## Completed Features
 
-### ✅ Core Honeypot (v0.1.0)
+### ✅ Core Honeypot (v0.2.0)
 - SSH server with Paramiko
 - AI response generation with Ollama
 - Basic logging and dashboard

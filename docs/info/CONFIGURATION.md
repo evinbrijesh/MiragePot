@@ -101,7 +101,7 @@ MIRAGEPOT_LLM_TEMPERATURE=0.9
 | `MIRAGEPOT_DASHBOARD_HOST` | `localhost` | Dashboard bind address |
 | `MIRAGEPOT_DASHBOARD_PORT` | `8501` | Dashboard port |
 | `MIRAGEPOT_DASHBOARD_REFRESH` | `5` | Auto-refresh interval (seconds) |
-| `MIRAGEPOT_DASHBOARD_PASSWORD` | (none) | Optional password to protect dashboard access |
+| `MIRAGEPOT_DASHBOARD_PASSWORD` | (required) | Required password to protect dashboard access (dashboard refuses to start if unset) |
 
 **Examples:**
 

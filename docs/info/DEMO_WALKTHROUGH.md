@@ -91,7 +91,7 @@ MiragePot/
 ├── dashboard/           # Real-time Streamlit monitoring
 ├── docker/              # Full stack deployment
 ├── grafana/             # Pre-built dashboards
-├── tests/               # 566 passing unit tests
+├── tests/               # Unit tests (count depends on branch)
 └── docs/                # Comprehensive documentation
 ```
 
@@ -134,7 +134,7 @@ MiragePot/
 2. **AI Interface** (Ollama + phi3) - Generates realistic command outputs
 3. **Defense Module** - Threat scoring, tarpit delays, prompt injection protection
 4. **Monitoring Stack** - Prometheus + Grafana for real-time visibility
-5. **Session Logging** - JSON logs of all activity for offline analysis
+5. **Session Logging** - JSON logs of all activity for offline analysis + attacker profile JSON in data/profiles/
 
 **Show Container Status:**
 

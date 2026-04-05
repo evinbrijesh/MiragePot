@@ -45,8 +45,7 @@ services:
       - "127.0.0.1:9090:9090"   # Prometheus metrics endpoint
     volumes:
       - ./data/logs:/app/data/logs
-      - ./data/cache.json:/app/data/cache.json
-      - ./data/system_prompt.txt:/app/data/system_prompt.txt
+      - ./data/profiles:/app/data/profiles
     env_file:
       - .env.docker
     environment:

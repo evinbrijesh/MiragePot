@@ -136,7 +136,7 @@ Quick fixes:
 See [Offline Deployment Guide](docs/OFFLINE_DEPLOYMENT.md) - includes script to create a portable bundle.
 
 **Demo presentation:**
-See [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - complete script for technical presentations.
+See [Demo Walkthrough](docs/info/DEMO_WALKTHROUGH.md) - complete script for technical presentations.
 
 ### Local Installation (For Development)
 
@@ -232,7 +232,7 @@ MIRAGEPOT_LLM_TEMPERATURE=0.7
 MIRAGEPOT_LOG_LEVEL=INFO
 ```
 
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for all options.
+See [docs/info/CONFIGURATION.md](docs/info/CONFIGURATION.md) for all options.
 
 ## CLI Usage
 
@@ -257,20 +257,20 @@ miragepot --help
 
 ### Getting Started
 - [Installation Guide](docs/INSTALL.md) - Local development setup
-- [Docker Deployment](docs/DOCKER_DEPLOYMENT.md) - Production deployment guide
-- [Configuration Reference](docs/CONFIGURATION.md) - All settings explained
+- [Docker Deployment](docs/info/DOCKER_DEPLOYMENT.md) - Production deployment guide
+- [Configuration Reference](docs/info/CONFIGURATION.md) - All settings explained
 
 ### Operations
 - [Usage Guide](docs/USAGE.md) - Running and testing MiragePot
-- [Monitoring Guide](docs/MONITORING.md) - Grafana dashboards and metrics
+- [Monitoring Guide](docs/info/MONITORING.md) - Grafana dashboards and metrics
 - [Troubleshooting](docs/TROUBLESHOOTING.md) - Common issues and solutions
 
 ### Specialized Deployments
 - [Offline Deployment](docs/OFFLINE_DEPLOYMENT.md) - Deploy without internet (for demos)
-- [Demo Walkthrough](docs/DEMO_WALKTHROUGH.md) - Present to technical audiences
+- [Demo Walkthrough](docs/info/DEMO_WALKTHROUGH.md) - Present to technical audiences
 
 ### Development
-- [Architecture](docs/architecture.md) - System design and components
+- [Architecture](docs/info/architecture.md) - System design and components
 - [Contributing](CONTRIBUTING.md) - How to contribute
 
 ## How It Works

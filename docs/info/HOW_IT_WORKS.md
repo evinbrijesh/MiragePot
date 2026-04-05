@@ -27,7 +27,7 @@ Attacker types commands in the fake shell
         ↓
 Command Handler processes each command (command_handler.py)
   1. Prompt injection detection (safety guard)
-  2. Check JSON cache (data/cache.json) → fast pre-baked response
+  2. Check JSON cache (miragepot/cache.json) → fast pre-baked response
   3. If cache miss → send to Ollama LLM (ai_interface.py) → LLM generates response
   4. If LLM unavailable → static fallback response
   5. Response validated (response_validator.py)
@@ -41,7 +41,7 @@ In parallel:
         ↓
 Response sent back to attacker
         ↓
-Session ends → full JSON log written to data/logs/
+Session ends → full JSON log written to data/logs/ and attacker profile written to data/profiles/
 ```
 
 ---
