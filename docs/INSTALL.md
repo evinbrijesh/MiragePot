@@ -110,7 +110,7 @@ Copy the example environment file:
 cp .env.example .env
 ```
 
-Edit `.env` to customize settings. See [CONFIGURATION.md](CONFIGURATION.md) for details.
+Edit `.env` to customize settings. See `docs/info/CONFIGURATION.md` for details.
 
 ## Installation Methods
 
@@ -184,5 +184,5 @@ rm -rf MiragePot
 ## Next Steps
 
 - Read [USAGE.md](USAGE.md) for running the honeypot
-- Review [CONFIGURATION.md](CONFIGURATION.md) for customization options
+- Review `docs/info/CONFIGURATION.md` for customization options
 - Check the main [README](../README.md) for quick start guide

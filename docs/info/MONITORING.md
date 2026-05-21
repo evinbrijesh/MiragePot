@@ -352,14 +352,14 @@ Export dashboard JSON:
 
 ## Troubleshooting
 
-For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
+For common issues and solutions, see the [Troubleshooting Guide](../TROUBLESHOOTING.md).
 
 Quick links:
-- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
-- [Docker issues](TROUBLESHOOTING.md#docker-issues)
-- [Installation issues](TROUBLESHOOTING.md#installation-issues)
-- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
-- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
+- [Monitoring issues](../TROUBLESHOOTING.md#monitoring-issues)
+- [Docker issues](../TROUBLESHOOTING.md#docker-issues)
+- [Installation issues](../TROUBLESHOOTING.md#installation-issues)
+- [Runtime issues](../TROUBLESHOOTING.md#runtime-issues)
+- [Offline deployment issues](../TROUBLESHOOTING.md#offline-deployment-issues)
 
 ---
 
@@ -377,5 +377,5 @@ Quick links:
 ## Next Steps
 
 - [Configure Alerts](CONFIGURATION.md#alerting)
-- [Analyze Session Data](USAGE.md)
+- [Analyze Session Data](../USAGE.md)
 - [Understand TTP Detection](architecture.md#ttp-detection)

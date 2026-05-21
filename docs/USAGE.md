@@ -283,5 +283,5 @@ Quick links:
 ## See Also
 
 - [INSTALL.md](INSTALL.md) - Installation guide
-- [CONFIGURATION.md](CONFIGURATION.md) - Configuration options
-- [architecture.md](architecture.md) - System architecture
+- `docs/info/CONFIGURATION.md` - Configuration options
+- `docs/info/architecture.md` - System architecture

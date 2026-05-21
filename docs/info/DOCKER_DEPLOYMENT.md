@@ -77,7 +77,7 @@ Complete guide for deploying MiragePot using Docker, including configuration, se
 | Feature | Simple Stack | Full Stack |
 |---------|--------------|------------|
 | **File** | `docker-compose-simple.yml` | `docker/docker-compose.yml` |
-| **Containers** | 2 | 5 |
+| **Containers** | 2 | 6 |
 | **SSH Honeypot** | ✅ | ✅ |
 | **AI Responses** | ✅ (Ollama + phi3) | ✅ (Ollama + phi3) |
 | **Streamlit Dashboard** | ✅ | ✅ |
@@ -102,7 +102,7 @@ python run.py
 
 **Starts:** SSH honeypot + Streamlit dashboard only.
 
-**Requires:** Ollama already installed and running on your machine (`ollama serve`), with the phi3 model pulled (`ollama pull phi3`).
+**Requires:** Ollama already installed and running on your machine (`ollama serve`). Pull the configured model in advance for faster first use.
 
 **Does NOT include:** Grafana, Prometheus UI, Alertmanager, or any container isolation.
 
@@ -116,7 +116,7 @@ python run.py
 docker compose -f docker-compose-simple.yml up -d
 ```
 
-**Starts:** SSH honeypot + Ollama + Streamlit dashboard (3 containers).
+**Starts:** SSH honeypot + Ollama (2 containers). Streamlit runs inside the MiragePot container.
 
 **Requires:** Docker only. Ollama and the phi3 model are managed automatically.
 
@@ -133,7 +133,7 @@ cd docker/
 docker compose up -d
 ```
 
-**Starts:** SSH honeypot + Ollama + Streamlit dashboard + Prometheus + Grafana + Alertmanager (5 containers).
+**Starts:** SSH honeypot + Ollama + Streamlit dashboard + Prometheus + Grafana + Alertmanager + Discord adapter (6 containers).
 
 **Requires:** Docker only. Everything is managed automatically.
 
@@ -219,6 +219,7 @@ Best for: Quick testing, demos, learning, resource-constrained environments.
 
 # Or manually
 docker compose -f docker-compose-simple.yml up -d
+# Optional warm-up for faster first AI response
 docker exec miragepot-ollama-simple ollama pull phi3
 ```
 
@@ -317,7 +318,7 @@ docker compose ps
 | Service | URL/Command | Default Credentials |
 |---------|-------------|---------------------|
 | SSH Honeypot | `ssh root@localhost -p 2222` | Any password |
-| Dashboard | http://localhost:8501 | None (optional: set `MIRAGEPOT_DASHBOARD_PASSWORD`) |
+| Dashboard | http://localhost:8501 | Password from `MIRAGEPOT_DASHBOARD_PASSWORD` (required) |
 | Grafana | http://localhost:3000 | admin / admin |
 | Prometheus | http://localhost:9091 | None |
 | Alertmanager | http://localhost:9093 | None |
@@ -680,14 +681,14 @@ curl http://localhost:11434/api/tags
 
 ## Troubleshooting
 
-For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
+For common issues and solutions, see `docs/TROUBLESHOOTING.md`.
 
 Quick links:
-- [Docker issues](TROUBLESHOOTING.md#docker-issues)
-- [Installation issues](TROUBLESHOOTING.md#installation-issues)
-- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
-- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
-- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
+- Docker issues (`docs/TROUBLESHOOTING.md#docker-issues`)
+- Installation issues (`docs/TROUBLESHOOTING.md#installation-issues`)
+- Runtime issues (`docs/TROUBLESHOOTING.md#runtime-issues`)
+- Monitoring issues (`docs/TROUBLESHOOTING.md#monitoring-issues`)
+- Offline deployment issues (`docs/TROUBLESHOOTING.md#offline-deployment-issues`)
 
 ---
 
@@ -696,4 +697,4 @@ Quick links:
 - [Configure Monitoring & Alerts](MONITORING.md)
 - [Understand the Architecture](architecture.md)
 - [Customize Configuration](CONFIGURATION.md)
-- [Analyze Session Data](USAGE.md)
+- Analyze Session Data (`docs/USAGE.md`)

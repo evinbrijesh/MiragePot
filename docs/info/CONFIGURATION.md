@@ -254,6 +254,6 @@ config = reload_config()
 
 ## See Also
 
-- [INSTALL.md](INSTALL.md) - Installation guide
-- [USAGE.md](USAGE.md) - Usage guide
-- [.env.example](../.env.example) - Example configuration file
+- [INSTALL.md](../INSTALL.md) - Installation guide
+- [USAGE.md](../USAGE.md) - Usage guide
+- `.env.example` (project root) - Example configuration file

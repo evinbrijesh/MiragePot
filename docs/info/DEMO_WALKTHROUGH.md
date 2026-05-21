@@ -39,6 +39,7 @@ cd MiragePot/
 cd docker/
 docker compose down -v  # Clean slate
 docker compose up -d
+# Optional warm-up to avoid first-response delay
 docker exec miragepot-ollama ollama pull phi3
 
 # Verify everything works
@@ -512,7 +513,7 @@ curl http://localhost:9091/api/v1/query?query=miragepot_commands_total > metrics
 
 ## Troubleshooting
 
-For comprehensive troubleshooting guidance including Docker issues, connectivity problems, database errors, and performance optimization, see **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)**.
+For comprehensive troubleshooting guidance including Docker issues, connectivity problems, database errors, and performance optimization, see **`docs/TROUBLESHOOTING.md`**.
 
 **"SSH connection refused"**
 

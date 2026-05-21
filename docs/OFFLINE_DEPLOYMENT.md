@@ -74,12 +74,12 @@ docker compose ps
 ### Step 3: Download AI Model
 
 ```bash
-# Pull phi3 model (~2GB, takes 2-5 minutes)
+# Optional: pre-pull phi3 model (~2GB, takes 2-5 minutes)
 docker exec miragepot-ollama ollama pull phi3
 
 # Verify it's downloaded
 docker exec miragepot-ollama ollama list
-# Should show: phi3:latest
+# Should include: phi3
 ```
 
 ### Step 4: Export Everything
@@ -258,7 +258,7 @@ nc -zv localhost 2222
 
 # Test Ollama model
 docker exec miragepot-ollama ollama list
-# Should show: phi3:latest
+# Should include: phi3
 
 # Test Grafana
 curl -s http://localhost:3000/api/health | grep database
@@ -414,14 +414,14 @@ Common questions:
 
 ## Troubleshooting
 
-For common issues and solutions, see the [Troubleshooting Guide](TROUBLESHOOTING.md).
+For common issues and solutions, see `docs/TROUBLESHOOTING.md`.
 
 Quick links:
-- [Offline deployment issues](TROUBLESHOOTING.md#offline-deployment-issues)
-- [Docker issues](TROUBLESHOOTING.md#docker-issues)
-- [Installation issues](TROUBLESHOOTING.md#installation-issues)
-- [Runtime issues](TROUBLESHOOTING.md#runtime-issues)
-- [Monitoring issues](TROUBLESHOOTING.md#monitoring-issues)
+- Offline deployment issues (`docs/TROUBLESHOOTING.md#offline-deployment-issues`)
+- Docker issues (`docs/TROUBLESHOOTING.md#docker-issues`)
+- Installation issues (`docs/TROUBLESHOOTING.md#installation-issues`)
+- Runtime issues (`docs/TROUBLESHOOTING.md#runtime-issues`)
+- Monitoring issues (`docs/TROUBLESHOOTING.md#monitoring-issues`)
 
 ---
 
