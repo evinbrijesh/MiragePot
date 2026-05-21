@@ -730,8 +730,8 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
                 )
             else:
                 st.markdown(
-                    f'<div style="text-align:center;padding:10px;background:#2c2c2c;'
-                    f'border-radius:4px;color:#666;font-size:11px;">'
+                    f'<div style="text-align:center;padding:10px;background:rgba(127,127,127,0.22);'
+                    f'border-radius:4px;color:var(--text-color);opacity:0.7;font-size:11px;">'
                     f"{stage_name}</div>",
                     unsafe_allow_html=True,
                 )
@@ -797,13 +797,13 @@ def render_ttp_timeline(session: Dict[str, Any]) -> None:
 
             st.markdown(
                 f"""
-                <div style="background:#1a1a2e;padding:10px;margin:5px 0;border-radius:4px;
+                <div style="background:var(--secondary-background-color);padding:10px;margin:5px 0;border-radius:4px;
                 border-left:4px solid {conf_color};">
-                    <span style="color:#888;font-size:11px;">{relative_time}</span>
-                    <strong style="color:#00d9ff;"> [{_h(technique_id)}]</strong> {_h(stage)} — {_h(technique_name)}
-                    <br><span style="color:#888;font-size:12px;">Confidence: {_h(confidence)}</span>
+                    <span style="color:var(--text-color);opacity:0.75;font-size:11px;">{relative_time}</span>
+                    <strong style="color:var(--primary-color);"> [{_h(technique_id)}]</strong> {_h(stage)} — {_h(technique_name)}
+                    <br><span style="color:var(--text-color);opacity:0.75;font-size:12px;">Confidence: {_h(confidence)}</span>
                     <br><code style="color:#00ff00;font-size:11px;">{_h(command[:100])}{"..." if len(command) > 100 else ""}</code>
-                    <br><span style="color:#aaa;font-size:11px;">{_h(description)}</span>
+                    <br><span style="color:var(--text-color);opacity:0.82;font-size:11px;">{_h(description)}</span>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -958,7 +958,6 @@ def render_credentials_analytics(sessions: List[Dict[str, Any]]) -> None:
                 fig = px.bar(
                     df_users.head(10), x="Username", y="Count", title="Top 10 Usernames"
                 )
-                fig.update_layout(template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No username data available")
@@ -975,7 +974,6 @@ def render_credentials_analytics(sessions: List[Dict[str, Any]]) -> None:
                 fig = px.bar(
                     df_pass.head(10), x="Password", y="Count", title="Top 10 Passwords"
                 )
-                fig.update_layout(template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No password data available")
@@ -1032,7 +1030,6 @@ def render_ssh_fingerprints(sessions: List[Dict[str, Any]]) -> None:
                     names=list(client_types.keys()),
                     title="SSH Client Distribution",
                 )
-                fig.update_layout(template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
             else:
                 df = pd.DataFrame(
@@ -1137,7 +1134,6 @@ def render_geoip_analytics(sessions: List[Dict[str, Any]]) -> None:
                     y="Sessions",
                     title="Top 10 Attacker Countries",
                 )
-                fig.update_layout(template="plotly_dark")
                 st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No geographic data available")
@@ -1166,15 +1162,7 @@ def render_geoip_analytics(sessions: List[Dict[str, Any]]) -> None:
                 title="Attacker Locations",
                 projection="natural earth",
             )
-            fig.update_layout(
-                template="plotly_dark",
-                geo=dict(
-                    showland=True,
-                    landcolor="rgb(30, 30, 30)",
-                    showocean=True,
-                    oceancolor="rgb(20, 20, 40)",
-                ),
-            )
+            fig.update_layout(geo=dict(showland=True, showocean=True))
             st.plotly_chart(fig, use_container_width=True)
         else:
             # Fallback to Streamlit's built-in map
@@ -1249,7 +1237,6 @@ def render_analytics_charts(sessions: List[Dict[str, Any]]) -> None:
                 ]
             )
             fig = px.line(df_time, x="Date", y="Sessions", title="Sessions per Day")
-            fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
         # Top commands
@@ -1261,7 +1248,6 @@ def render_analytics_charts(sessions: List[Dict[str, Any]]) -> None:
             fig = px.bar(
                 df_cmds, x="Command", y="Count", title="Most Frequent Commands"
             )
-            fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
     with col2:
@@ -1274,7 +1260,6 @@ def render_analytics_charts(sessions: List[Dict[str, Any]]) -> None:
                 title="Threat Score Histogram",
                 labels={"value": "Threat Score", "count": "Frequency"},
             )
-            fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
         # Sessions per IP
@@ -1284,7 +1269,6 @@ def render_analytics_charts(sessions: List[Dict[str, Any]]) -> None:
                 sessions_per_ip.most_common(10), columns=["IP", "Sessions"]
             )
             fig = px.bar(df_ips, x="IP", y="Sessions", title="Sessions per IP (Top 10)")
-            fig.update_layout(template="plotly_dark")
             st.plotly_chart(fig, use_container_width=True)
 
     # High risk trend
@@ -1302,7 +1286,6 @@ def render_analytics_charts(sessions: List[Dict[str, Any]]) -> None:
             y="High Risk Commands",
             title="High Risk Commands per Day",
         )
-        fig.update_layout(template="plotly_dark")
         st.plotly_chart(fig, use_container_width=True)
 
 
@@ -1672,29 +1655,108 @@ def main() -> None:
         st.stop()
     # ---- End authentication gate ----
 
-    # Custom CSS for dark theme
+    # Theme-aware visual polish (better contrast in light mode)
     st.markdown(
         """
     <style>
-    .stApp {
-        background-color: #0e1117;
+    :root {
+        --mp-accent: #0ea5e9;
+        --mp-accent-2: #7c3aed;
+        --mp-success: #10b981;
+        --mp-warning: #f59e0b;
+        --mp-danger: #ef4444;
     }
+
+    .stApp {
+        background:
+            radial-gradient(circle at 10% 8%, rgba(14, 165, 233, 0.16), transparent 34%),
+            radial-gradient(circle at 92% 2%, rgba(124, 58, 237, 0.12), transparent 30%),
+            radial-gradient(circle at 55% 100%, rgba(16, 185, 129, 0.06), transparent 26%),
+            var(--background-color);
+        background-color: var(--background-color);
+        color: var(--text-color);
+    }
+
+    [data-testid="stSidebar"] > div:first-child {
+        background:
+            linear-gradient(165deg, rgba(14, 165, 233, 0.10) 0%, rgba(124, 58, 237, 0.08) 100%),
+            linear-gradient(180deg, rgba(148, 163, 184, 0.16) 0%, rgba(148, 163, 184, 0.08) 100%);
+        border-right: 1px solid rgba(127, 127, 127, 0.30);
+    }
+
+    [data-testid="block-container"] {
+        background: linear-gradient(180deg, rgba(255,255,255,0.28) 0%, rgba(255,255,255,0.08) 100%);
+        border: 1px solid rgba(127, 127, 127, 0.20);
+        border-radius: 18px;
+        padding: 1.25rem 1.5rem 2rem 1.5rem;
+        box-shadow: 0 12px 30px rgba(2, 6, 23, 0.10);
+        backdrop-filter: blur(4px);
+    }
+
     .main-header {
         font-size: 2.5rem;
         font-weight: bold;
-        color: #00d9ff;
+        background: linear-gradient(90deg, var(--mp-accent) 0%, var(--mp-accent-2) 70%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        -webkit-text-fill-color: transparent;
         margin-bottom: 0;
+        letter-spacing: 0.2px;
     }
+
     .sub-header {
-        color: #888;
+        color: var(--text-color);
+        opacity: 0.92;
         font-size: 1rem;
         margin-top: 0;
     }
+
+    [data-testid="metric-container"] {
+        background: linear-gradient(135deg, rgba(14, 165, 233, 0.14) 0%, rgba(124, 58, 237, 0.10) 100%);
+        border: 1px solid rgba(127, 127, 127, 0.22);
+        border-radius: 12px;
+        padding: 0.7rem 0.9rem;
+    }
+
+    [data-testid="metric-container"] [data-testid="stMetricLabel"] {
+        font-weight: 600;
+    }
+
+    [data-testid="metric-container"] [data-testid="stMetricValue"] {
+        font-weight: 700;
+        color: var(--text-color);
+    }
+
     .metric-card {
-        background: #1a1a2e;
+        background: rgba(127, 127, 127, 0.12);
         padding: 20px;
         border-radius: 8px;
-        border-left: 4px solid #00d9ff;
+        border-left: 4px solid var(--mp-accent);
+    }
+
+    [data-testid="stAlert"] {
+        border-radius: 10px;
+        border: 1px solid rgba(14, 165, 233, 0.32);
+        box-shadow: inset 0 0 0 1px rgba(255,255,255,0.08);
+    }
+
+    [data-baseweb="radio"] label:hover {
+        background: rgba(14, 165, 233, 0.10);
+        border-radius: 8px;
+        transition: background 0.2s ease;
+    }
+
+    [data-testid="stDataFrame"] {
+        border-radius: 12px;
+        overflow: hidden;
+        border: 1px solid rgba(127, 127, 127, 0.25);
+    }
+
+    @media (max-width: 900px) {
+        [data-testid="block-container"] {
+            padding: 1rem;
+            border-radius: 12px;
+        }
     }
     </style>
     """,
